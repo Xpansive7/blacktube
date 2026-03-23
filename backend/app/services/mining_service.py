@@ -1,24 +1,25 @@
 """
-MINING SERVICE - Busca de conteúdo em TMDb e YouTube
+MINING SERVICE - Busca real de conteúdo no YouTube.
 
-Implementação MOCK para MVP. Preparado para integração real com:
-- TMDb API (filme/série data)
-- YouTube API (estatísticas de vídeos)
-
-Calcula opportunity_score baseado em:
-- TMDb rating (qualidade percebida)
-- Volume de conteúdo no YouTube
-- Engagement médio (views + comments)
+Esta versão abandona o mock de títulos fixos e usa a YouTube Data API v3
+para pesquisar vídeos reais, trazendo título, descrição, data, views e
+comentários. O resultado continua no formato esperado pelo frontend.
 """
 
-import random
-from typing import List, Dict, Any, Optional
+from __future__ import annotations
+
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+import httpx
+
+from app.config import get_settings
 
 
 @dataclass
 class MiningResultData:
-    """Resultado de mineração estruturado"""
+    """Resultado de mineração estruturado para persistência no banco."""
 
     title: str
     year: int
@@ -29,117 +30,16 @@ class MiningResultData:
     yt_avg_views: Optional[float] = None
     yt_avg_comments: Optional[float] = None
     opportunity_score: float = 0.0
-    content_type: str = "movie"
+    content_type: str = "youtube"
 
 
 class MiningService:
-    """Serviço de mineração de conteúdo para oportunidades de vídeo"""
+    """Busca oportunidades reais no YouTube."""
 
-    # Mock data - em produção viria de APIs reais
-    MOCK_MOVIES = {
-        "The Shawshank Redemption": {
-            "year": 1994,
-            "synopsis": "Dois homens condenados à vida em prisão formam uma amizade.",
-            "tmdb_id": "278",
-            "tmdb_rating": 9.3,
-            "yt_videos": 250,
-            "yt_avg_views": 150000,
-            "yt_avg_comments": 2500,
-        },
-        "The Dark Knight": {
-            "year": 2008,
-            "synopsis": "Batman enfrenta o Coringa, um inimigo psicopata em Gotham.",
-            "tmdb_id": "155",
-            "tmdb_rating": 9.0,
-            "yt_videos": 500,
-            "yt_avg_views": 250000,
-            "yt_avg_comments": 4000,
-        },
-        "Inception": {
-            "year": 2010,
-            "synopsis": "Um ladrão especializado em roubar segredos de sonhos.",
-            "tmdb_id": "27205",
-            "tmdb_rating": 8.8,
-            "yt_videos": 450,
-            "yt_avg_views": 180000,
-            "yt_avg_comments": 3000,
-        },
-        "Pulp Fiction": {
-            "year": 1994,
-            "synopsis": "Histórias entrelaçadas de criminosos, boxeadores e gângsteres.",
-            "tmdb_id": "680",
-            "tmdb_rating": 8.9,
-            "yt_videos": 320,
-            "yt_avg_views": 200000,
-            "yt_avg_comments": 3500,
-        },
-        "The Matrix": {
-            "year": 1999,
-            "synopsis": "Um hacker descobre a verdade sobre sua realidade.",
-            "tmdb_id": "603",
-            "tmdb_rating": 8.7,
-            "yt_videos": 600,
-            "yt_avg_views": 300000,
-            "yt_avg_comments": 5000,
-        },
-        "Fight Club": {
-            "year": 1999,
-            "synopsis": "Um homem insone forma um clube de luta subterrâneo.",
-            "tmdb_id": "550",
-            "tmdb_rating": 8.8,
-            "yt_videos": 400,
-            "yt_avg_views": 220000,
-            "yt_avg_comments": 3800,
-        },
-        "Parasite": {
-            "year": 2019,
-            "synopsis": "Uma família pobre se infiltra na casa de uma família rica.",
-            "tmdb_id": "496243",
-            "tmdb_rating": 8.6,
-            "yt_videos": 350,
-            "yt_avg_views": 190000,
-            "yt_avg_comments": 3200,
-        },
-    }
+    YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3"
 
-    MOCK_SERIES = {
-        "Breaking Bad": {
-            "year": 2008,
-            "synopsis": "Um professor de química se torna traficante de metanfetamina.",
-            "tmdb_id": "1396",
-            "tmdb_rating": 9.5,
-            "yt_videos": 800,
-            "yt_avg_views": 400000,
-            "yt_avg_comments": 6000,
-        },
-        "The Office (US)": {
-            "year": 2005,
-            "synopsis": "Mockumentary sobre funcionários de uma empresa de papel.",
-            "tmdb_id": "18594",
-            "tmdb_rating": 9.0,
-            "yt_videos": 1200,
-            "yt_avg_views": 500000,
-            "yt_avg_comments": 8000,
-        },
-        "Stranger Things": {
-            "year": 2016,
-            "synopsis": "Crianças enfrentam fenômenos sobrenaturais em uma pequena cidade.",
-            "tmdb_id": "66732",
-            "tmdb_rating": 8.7,
-            "yt_videos": 900,
-            "yt_avg_views": 350000,
-            "yt_avg_comments": 5500,
-        },
-        "The Crown": {
-            "year": 2016,
-            "synopsis": "Dramatização da vida e reinado da Rainha Elizabeth II.",
-            "tmdb_id": "60573",
-            "tmdb_rating": 8.6,
-            "yt_videos": 600,
-            "yt_avg_views": 280000,
-            "yt_avg_comments": 4000,
-        },
-    }
+    def __init__(self) -> None:
+        self.settings = get_settings()
 
     def search(
         self,
@@ -150,68 +50,78 @@ class MiningService:
         content_type: Optional[str] = None,
     ) -> List[MiningResultData]:
         """
-        Busca conteúdo em TMDb e YouTube.
+        Busca vídeos reais no YouTube e converte para o formato do app.
 
-        Args:
-            query: Termo de busca
-            genre: Filtro por gênero
-            year_from: Ano mínimo
-            year_to: Ano máximo
-            content_type: 'movie', 'series' ou None (ambos)
-
-        Returns:
-            Lista de resultados de mineração ordenados por oportunidade
+        O filtro `content_type` é mantido por compatibilidade de schema, mas
+        a busca agora é orientada por YouTube e não por um catálogo fixo.
         """
-        results = []
+        api_key = self.settings.youtube_api_key
+        if not api_key:
+            raise ValueError(
+                "YOUTUBE_API_KEY nao configurada no backend. Adicione a chave para usar a mineracao real."
+            )
 
-        # Em produção, integrar com:
-        # - tmdb_api.search_movie(query) / search_tv(query)
-        # - youtube_api.search(query)
+        search_query = " ".join(
+            part.strip()
+            for part in [query, genre]
+            if part and part.strip()
+        )
 
-        # Mock: simular busca
-        pool = {}
+        with httpx.Client(timeout=20.0) as client:
+            search_payload = self._search_youtube(
+                client=client,
+                query=search_query,
+                api_key=api_key,
+                year_from=year_from,
+                year_to=year_to,
+            )
+            items = search_payload.get("items", [])
+            if not items:
+                return []
 
-        if content_type in (None, "movie"):
-            pool.update(self.MOCK_MOVIES)
-        if content_type in (None, "series"):
-            pool.update(self.MOCK_SERIES)
+            total_results = int(search_payload.get("pageInfo", {}).get("totalResults", len(items)))
+            video_ids = [
+                item.get("id", {}).get("videoId")
+                for item in items
+                if item.get("id", {}).get("videoId")
+            ]
+            stats_map = self._fetch_video_statistics(client=client, api_key=api_key, video_ids=video_ids)
 
-        # Filtrar por query
-        filtered = {k: v for k, v in pool.items() if query.lower() in k.lower()}
+        results: List[MiningResultData] = []
+        for item in items:
+            video_id = item.get("id", {}).get("videoId")
+            snippet = item.get("snippet", {})
+            if not video_id or not snippet:
+                continue
 
-        # Filtrar por ano
-        if year_from or year_to:
-            filtered = {
-                k: v
-                for k, v in filtered.items()
-                if (not year_from or v["year"] >= year_from)
-                and (not year_to or v["year"] <= year_to)
-            }
+            stats = stats_map.get(video_id, {})
+            title = snippet.get("title", "Sem titulo")
+            description = snippet.get("description") or "Sem descricao fornecida pelo YouTube."
+            published_at = snippet.get("publishedAt")
+            year = self._extract_year(published_at)
+            views = self._safe_int(stats.get("viewCount"))
+            comments = self._safe_int(stats.get("commentCount"))
 
-        # Converter para MiningResultData
-        for title, data in filtered.items():
             result = MiningResultData(
                 title=title,
-                year=data["year"],
-                synopsis=data["synopsis"],
-                tmdb_id=data["tmdb_id"],
-                tmdb_rating=data["tmdb_rating"],
-                yt_video_count=data["yt_videos"],
-                yt_avg_views=data["yt_avg_views"],
-                yt_avg_comments=data["yt_avg_comments"],
-                content_type=content_type or "unknown",
+                year=year,
+                synopsis=description[:800],
+                tmdb_id=video_id,
+                tmdb_rating=None,
+                yt_video_count=total_results,
+                yt_avg_views=float(views),
+                yt_avg_comments=float(comments),
+                content_type="youtube",
             )
             result.opportunity_score = self.calculate_opportunity_score(
-                result.tmdb_rating,
-                result.yt_video_count,
-                result.yt_avg_views,
-                result.yt_avg_comments,
+                yt_video_count=total_results,
+                yt_avg_views=float(views),
+                yt_avg_comments=float(comments),
+                published_at=published_at,
             )
             results.append(result)
 
-        # Ordenar por opportunity_score
-        results.sort(key=lambda x: x.opportunity_score, reverse=True)
-
+        results.sort(key=lambda item: item.opportunity_score, reverse=True)
         return results
 
     def calculate_opportunity_score(
@@ -220,131 +130,117 @@ class MiningService:
         yt_video_count: Optional[int] = None,
         yt_avg_views: Optional[float] = None,
         yt_avg_comments: Optional[float] = None,
+        published_at: Optional[str] = None,
     ) -> float:
         """
-        Calcula oportunidade de conteúdo (0-100).
+        Score 0-100 orientado a YouTube.
 
-        Fórmula:
-        - Qualidade (TMDb rating): 40% do score
-        - Volume (número de vídeos): 20% do score
-        - Engagement (views + comments): 40% do score
-
-        Args:
-            tmdb_rating: Rating do TMDb (0-10)
-            yt_video_count: Número de vídeos no YouTube
-            yt_avg_views: Visualizações médias
-            yt_avg_comments: Comentários médios
-
-        Returns:
-            Score de 0-100
+        Critérios:
+        - views: 45%
+        - comments: 20%
+        - demanda da busca (total de resultados): 20%
+        - recência: 15%
         """
         score = 0.0
 
-        # Componente de qualidade (40%)
-        if tmdb_rating:
-            quality_score = (tmdb_rating / 10.0) * 100
-            score += quality_score * 0.4
+        views = yt_avg_views or 0.0
+        comments = yt_avg_comments or 0.0
+        total_results = yt_video_count or 0
 
-        # Componente de volume (20%)
-        if yt_video_count:
-            # Normalizar volume (esperamos 100-1000 vídeos)
-            volume_score = min((yt_video_count / 1000.0) * 100, 100)
-            score += volume_score * 0.2
+        views_score = min((views / 500_000.0) * 100.0, 100.0)
+        comments_score = min((comments / 5_000.0) * 100.0, 100.0)
+        demand_score = min((total_results / 1_000_000.0) * 100.0, 100.0)
 
-        # Componente de engagement (40%)
-        engagement_score = 0.0
-        if yt_avg_views:
-            # Normalizar views (esperamos 100k-500k média)
-            views_component = min((yt_avg_views / 500000.0) * 100, 100)
-            engagement_score += views_component * 0.6
+        score += views_score * 0.45
+        score += comments_score * 0.20
+        score += demand_score * 0.20
 
-        if yt_avg_comments:
-            # Normalizar comentários (esperamos 2k-8k média)
-            comments_component = min((yt_avg_comments / 8000.0) * 100, 100)
-            engagement_score += comments_component * 0.4
+        recency_score = 50.0
+        if published_at:
+            try:
+                published = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+                age_days = max((datetime.now(timezone.utc) - published).days, 0)
+                if age_days <= 30:
+                    recency_score = 100.0
+                elif age_days <= 180:
+                    recency_score = 80.0
+                elif age_days <= 365:
+                    recency_score = 65.0
+                elif age_days <= 730:
+                    recency_score = 50.0
+                else:
+                    recency_score = 35.0
+            except ValueError:
+                recency_score = 50.0
 
-        score += engagement_score * 0.4
+        score += recency_score * 0.15
+        return min(round(score, 2), 100.0)
 
-        return min(score, 100.0)
-
-    def search_tmdb(
+    def _search_youtube(
         self,
+        client: httpx.Client,
         query: str,
-        api_key: Optional[str] = None,
+        api_key: str,
         year_from: Optional[int] = None,
         year_to: Optional[int] = None,
-    ) -> List[Dict[str, Any]]:
-        """
-        Busca em TMDb (para integração real).
+    ) -> Dict[str, Any]:
+        params: Dict[str, Any] = {
+            "key": api_key,
+            "q": query,
+            "part": "snippet",
+            "type": "video",
+            "order": "viewCount",
+            "maxResults": 12,
+            "regionCode": "BR",
+            "relevanceLanguage": "pt",
+            "safeSearch": "none",
+        }
 
-        TODO: Integrar com requests + TMDb API v3/v4
-        https://developer.themoviedb.org/reference/intro/getting-started
+        if year_from:
+            params["publishedAfter"] = f"{year_from}-01-01T00:00:00Z"
+        if year_to:
+            params["publishedBefore"] = f"{year_to}-12-31T23:59:59Z"
 
-        Args:
-            query: Termo de busca
-            api_key: Chave da API TMDb
-            year_from: Ano mínimo
-            year_to: Ano máximo
+        response = client.get(f"{self.YOUTUBE_API_BASE}/search", params=params)
+        response.raise_for_status()
+        return response.json()
 
-        Returns:
-            Lista de resultados brutos da API
-        """
-        # import requests
-        # base_url = "https://api.themoviedb.org/3/search/multi"
-        # params = {
-        #     "api_key": api_key,
-        #     "query": query,
-        # }
-        # response = requests.get(base_url, params=params)
-        # return response.json()["results"]
-        pass
-
-    def search_youtube(
+    def _fetch_video_statistics(
         self,
-        query: str,
-        api_key: Optional[str] = None,
-        order: str = "relevance",
-        max_results: int = 50,
-    ) -> List[Dict[str, Any]]:
-        """
-        Busca em YouTube (para integração real).
+        client: httpx.Client,
+        api_key: str,
+        video_ids: List[str],
+    ) -> Dict[str, Dict[str, Any]]:
+        if not video_ids:
+            return {}
 
-        TODO: Integrar com requests + YouTube Data API v3
-        https://developers.google.com/youtube/v3
+        params = {
+            "key": api_key,
+            "id": ",".join(video_ids),
+            "part": "statistics,contentDetails,snippet",
+            "maxResults": len(video_ids),
+        }
+        response = client.get(f"{self.YOUTUBE_API_BASE}/videos", params=params)
+        response.raise_for_status()
+        payload = response.json()
 
-        Args:
-            query: Termo de busca
-            api_key: Chave da API YouTube
-            order: 'relevance', 'rating', 'viewCount', 'title'
-            max_results: Máximo de resultados (1-50)
+        stats_map: Dict[str, Dict[str, Any]] = {}
+        for item in payload.get("items", []):
+            stats_map[item["id"]] = item.get("statistics", {})
+        return stats_map
 
-        Returns:
-            Lista de vídeos com estatísticas
-        """
-        # import requests
-        # base_url = "https://www.googleapis.com/youtube/v3/search"
-        # params = {
-        #     "key": api_key,
-        #     "q": query,
-        #     "type": "video",
-        #     "order": order,
-        #     "maxResults": max_results,
-        #     "part": "snippet"
-        # }
-        # response = requests.get(base_url, params=params)
-        # results = response.json()["items"]
-        # # Buscar estatísticas de cada vídeo
-        # for result in results:
-        #     video_id = result["id"]["videoId"]
-        #     # Chamar YouTube API stats endpoint para views/comments
-        # return results
-        pass
+    @staticmethod
+    def _extract_year(published_at: Optional[str]) -> int:
+        if not published_at:
+            return datetime.now().year
+        try:
+            return datetime.fromisoformat(published_at.replace("Z", "+00:00")).year
+        except ValueError:
+            return datetime.now().year
 
-    def get_content_type(self, tmdb_media_type: str) -> str:
-        """Converter tipo de TMDb para padrão BlackTube"""
-        if tmdb_media_type == "movie":
-            return "movie"
-        elif tmdb_media_type == "tv":
-            return "series"
-        else:
-            return "unknown"
+    @staticmethod
+    def _safe_int(value: Any) -> int:
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
