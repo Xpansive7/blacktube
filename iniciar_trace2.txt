@@ -1,0 +1,29 @@
+
+ =============================================
+       B L A C K T U B E  -  Iniciando
+ =============================================
+
+[0/5] Liberando portas 8000 e 3010...
+     OK
+[1/5] Instalando backend...
+     OK
+[2/5] Criando banco de dados...
+     OK
+[3/5] Ligando backend em background...
+     OK
+[4/5] Ligando frontend em background...
+     OK
+[5/5] Esperando servicos responderem...
+     OK
+
+ =============================================
+    PRONTO! Abrindo no navegador...
+ =============================================
+
+ Backend:  http://localhost:8000/docs
+ Frontend: http://localhost:3010
+
+ Login: lucas@xpansive.com / black777
+
+ Pode fechar esta janela.
+Pressione qualquer tecla para continuar. . . 
