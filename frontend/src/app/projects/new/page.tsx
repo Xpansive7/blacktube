@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
@@ -57,7 +57,7 @@ const awarenessLevelMap: Record<number, string> = {
   10: "product_aware",
 };
 
-export default function NewProjectPage() {
+function NewProjectPageContent() {
   const router = useRouter();
   const { setCurrentProject, addProject } = useProjectStore();
   const [step, setStep] = useState(1);
@@ -78,6 +78,29 @@ export default function NewProjectPage() {
   const handleInputChange = (field: string, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const query = new URLSearchParams(window.location.search);
+    const title = query.get("title");
+    const type = query.get("type");
+    const source = query.get("source");
+    const synopsis = query.get("synopsis");
+    const year = query.get("year");
+
+    setFormData((prev) => ({
+      ...prev,
+      title: title || prev.title,
+      type:
+        type && ["documentary", "series", "short", "special"].includes(type)
+          ? type
+          : prev.type,
+      source: source || prev.source,
+      synopsis: synopsis || prev.synopsis,
+      year: year ? Number(year) || prev.year : prev.year,
+    }));
+  }, []);
 
   const handleCreate = async () => {
     try {
@@ -433,5 +456,13 @@ export default function NewProjectPage() {
         </div>
       </div>
     </AppLayout>
+  );
+}
+
+export default function NewProjectPage() {
+  return (
+    <Suspense fallback={null}>
+      <NewProjectPageContent />
+    </Suspense>
   );
 }

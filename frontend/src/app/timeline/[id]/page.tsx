@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import {
   AlertTriangle,
   Clock,
@@ -34,11 +35,9 @@ function formatDuration(seconds: number) {
   return `${minutes}m ${remaining.toString().padStart(2, "0")}s`;
 }
 
-export default function TimelinePage({
-  params,
-}: {
-  params: { id: string };
-}) {
+export default function TimelinePage() {
+  const params = useParams<{ id: string }>();
+  const projectId = Array.isArray(params.id) ? params.id[0] : params.id;
   const [projectTitle, setProjectTitle] = useState("Projeto");
   const [timeline, setTimeline] = useState<TimelineData | null>(null);
   const [summary, setSummary] = useState<TimelineSummary | null>(null);
@@ -53,13 +52,14 @@ export default function TimelinePage({
       setLoading(true);
       setError("");
 
-      const project = await fetchProject(params.id);
+      if (!projectId) return;
+      const project = await fetchProject(projectId);
       setProjectTitle(project.title);
 
       const [summaryData, validationData, timelineData] = await Promise.allSettled([
-        fetchTimelineSummary(params.id),
-        validateTimeline(params.id),
-        fetchTimeline(params.id),
+        fetchTimelineSummary(projectId),
+        validateTimeline(projectId),
+        fetchTimeline(projectId),
       ]);
 
       if (summaryData.status === "fulfilled") setSummary(summaryData.value);
@@ -74,7 +74,7 @@ export default function TimelinePage({
     } finally {
       setLoading(false);
     }
-  }, [params.id]);
+  }, [projectId]);
 
   useEffect(() => {
     loadTimeline();
@@ -84,7 +84,8 @@ export default function TimelinePage({
     try {
       setGeneratingScript(true);
       setMessage("");
-      const result = await generateScript(params.id);
+      if (!projectId) return;
+      const result = await generateScript(projectId);
       setMessage(`${result.chapters_created} capitulos gerados para a timeline.`);
       await loadTimeline();
     } catch (err: any) {
@@ -115,7 +116,7 @@ export default function TimelinePage({
               <RefreshCcw size={16} />
               <span>Atualizar</span>
             </Button>
-            <Link href={`/voice/${params.id}`}>
+            <Link href={`/voice/${projectId}`}>
               <Button variant="accent">Ir para voz</Button>
             </Link>
           </div>
@@ -160,7 +161,7 @@ export default function TimelinePage({
                 >
                   {generatingScript ? "Gerando roteiro..." : "Gerar roteiro"}
                 </Button>
-                <Link href={`/projects/${params.id}`}>
+                <Link href={`/projects/${projectId}`}>
                   <Button variant="ghost">Voltar ao projeto</Button>
                 </Link>
               </div>

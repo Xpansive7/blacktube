@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import { Download, Edit, MoreVertical, Share2 } from "lucide-react";
 
 import { AppLayout } from "@/components/layout/app-layout";
@@ -19,11 +20,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fetchProject } from "@/lib/projects";
 import { useProjectStore } from "@/lib/store";
 
-export default function ProjectDetailPage({
-  params,
-}: {
-  params: { id: string };
-}) {
+export default function ProjectDetailPage() {
+  const params = useParams<{ id: string }>();
+  const projectId = Array.isArray(params.id) ? params.id[0] : params.id;
   const [activeTab, setActiveTab] = useState("overview");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -37,7 +36,8 @@ export default function ProjectDetailPage({
       try {
         setLoading(true);
         setError("");
-        const data = await fetchProject(params.id);
+        if (!projectId) return;
+        const data = await fetchProject(projectId);
         if (!active) return;
         setProjectSynopsis(data.synopsis || "");
         setCurrentProject({
@@ -66,9 +66,9 @@ export default function ProjectDetailPage({
     return () => {
       active = false;
     };
-  }, [params.id, setCurrentProject]);
+  }, [projectId, setCurrentProject]);
 
-  const project = currentProject && currentProject.id === params.id ? currentProject : null;
+  const project = currentProject && currentProject.id === projectId ? currentProject : null;
 
   return (
     <AppLayout>
@@ -175,17 +175,17 @@ export default function ProjectDetailPage({
                         Editar Roteiro
                       </Button>
                     </Link>
-                    <Link href={`/voice/${params.id}`}>
+                    <Link href={`/voice/${projectId}`}>
                       <Button variant="ghost" className="w-full justify-center">
                         Abrir Studio de Voz
                       </Button>
                     </Link>
-                    <Link href={`/timeline/${params.id}`}>
+                    <Link href={`/timeline/${projectId}`}>
                       <Button variant="ghost" className="w-full justify-center">
                         Abrir Timeline
                       </Button>
                     </Link>
-                    <Link href={`/export/${params.id}`}>
+                    <Link href={`/export/${projectId}`}>
                       <Button variant="ghost" className="w-full justify-center">
                         Exportar
                       </Button>
@@ -238,7 +238,7 @@ export default function ProjectDetailPage({
                 <p className="mb-4 text-text-muted">
                   Abra o studio de voz conectado a este projeto.
                 </p>
-                <Link href={`/voice/${params.id}`}>
+                <Link href={`/voice/${projectId}`}>
                   <Button variant="accent">Ir para Studio de Voz</Button>
                 </Link>
               </CardContent>
@@ -254,7 +254,7 @@ export default function ProjectDetailPage({
                 <p className="mb-4 text-text-muted">
                   Visualize a timeline estruturada deste projeto.
                 </p>
-                <Link href={`/timeline/${params.id}`}>
+                <Link href={`/timeline/${projectId}`}>
                   <Button variant="accent">Abrir Timeline</Button>
                 </Link>
               </CardContent>
@@ -270,7 +270,7 @@ export default function ProjectDetailPage({
                 <p className="mb-4 text-text-muted">
                   Gere arquivos de saida para este projeto.
                 </p>
-                <Link href={`/export/${params.id}`}>
+                <Link href={`/export/${projectId}`}>
                   <Button variant="accent" className="space-x-2">
                     <Download size={16} />
                     <span>Ir para Exportacao</span>

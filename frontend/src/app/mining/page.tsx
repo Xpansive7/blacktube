@@ -1,16 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
-import {
-  Search,
-  Zap,
-  TrendingUp,
-  Plus,
-  Filter,
-  Calendar,
-  BarChart3,
-} from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Search, Zap, Plus } from "lucide-react";
 import Link from "next/link";
+
 import { AppLayout } from "@/components/layout/app-layout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,72 +11,21 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { fetchMiningResults, searchMining, type MiningResult } from "@/lib/mining";
 
-const mockOpportunities = [
-  {
-    id: "1",
-    title: "A Inteligência Artificial Vai Substituir Empregos?",
-    year: 2024,
-    type: "Tendência",
-    synopsis:
-      "Debate profundo sobre o impacto da IA no mercado de trabalho e habilidades futuras.",
-    score: 94,
-    ytStats: { views: 2500000, likes: 45000, comments: 8900 },
-    genre: "Tecnologia",
-  },
-  {
-    id: "2",
-    title: "Como a Neurociência Explica a Felicidade",
-    year: 2024,
-    type: "Educacional",
-    synopsis:
-      "Análise científica dos mecanismos cerebrais por trás do bem-estar psicológico.",
-    score: 87,
-    ytStats: { views: 1800000, likes: 32000, comments: 6200 },
-    genre: "Ciência",
-  },
-  {
-    id: "3",
-    title: "O Futuro dos Negócios Digitais",
-    year: 2024,
-    type: "Análise",
-    synopsis:
-      "Previsões sobre transformação digital e novas oportunidades de mercado.",
-    score: 91,
-    ytStats: { views: 3200000, likes: 58000, comments: 12100 },
-    genre: "Negócios",
-  },
-  {
-    id: "4",
-    title: "Sustentabilidade: Ficção ou Realidade?",
-    year: 2024,
-    type: "Investigação",
-    synopsis:
-      "Investigação crítica sobre práticas sustentáveis nas grandes corporações.",
-    score: 85,
-    ytStats: { views: 1500000, likes: 28000, comments: 5400 },
-    genre: "Ambiental",
-  },
-  {
-    id: "5",
-    title: "A Psicologia do Consumo Digital",
-    year: 2024,
-    type: "Pesquisa",
-    synopsis: "Como as redes sociais influenciam nossas decisões de compra.",
-    score: 89,
-    ytStats: { views: 2100000, likes: 39000, comments: 7800 },
-    genre: "Comportamento",
-  },
-  {
-    id: "6",
-    title: "Cripto: Investimento ou Especulação?",
-    year: 2024,
-    type: "Análise",
-    synopsis: "Análise técnica e fundamental sobre o mercado de criptomoedas.",
-    score: 82,
-    ytStats: { views: 2800000, likes: 52000, comments: 9800 },
-    genre: "Finanças",
-  },
+const genreOptions = [
+  "Tecnologia",
+  "Ciencia",
+  "Negocios",
+  "Ambiental",
+  "Comportamento",
+  "Financas",
+];
+
+const contentTypeOptions = [
+  { label: "Todos", value: "" },
+  { label: "Filmes", value: "movie" },
+  { label: "Series", value: "series" },
 ];
 
 const getScoreColor = (score: number) => {
@@ -92,149 +34,236 @@ const getScoreColor = (score: number) => {
   return "text-status-danger";
 };
 
-export default function MiningPage() {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [genreFilter, setGenreFilter] = useState("");
-  const [yearRange, setYearRange] = useState("");
+function formatCompactNumber(value?: number | null) {
+  if (!value) return "0";
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+  return String(Math.round(value));
+}
 
-  const filteredOpportunities = mockOpportunities.filter((opp) => {
-    const matchesSearch = opp.title
-      .toLowerCase()
-      .includes(searchTerm.toLowerCase());
-    const matchesGenre = !genreFilter || opp.genre === genreFilter;
-    return matchesSearch && matchesGenre;
-  });
+function buildProjectQuery(result: MiningResult) {
+  const params = new URLSearchParams();
+  params.set("title", result.title);
+  if (result.year) params.set("year", String(result.year));
+  if (result.synopsis) params.set("synopsis", result.synopsis);
+  params.set("type", result.content_type === "series" ? "series" : "documentary");
+  params.set("source", result.query || "youtube");
+  return `/projects/new?${params.toString()}`;
+}
+
+export default function MiningPage() {
+  const [searchTerm, setSearchTerm] = useState("power");
+  const [genreFilter, setGenreFilter] = useState("");
+  const [contentType, setContentType] = useState("");
+  const [results, setResults] = useState<MiningResult[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  async function loadRecentResults() {
+    try {
+      setLoading(true);
+      setError("");
+      const data = await fetchMiningResults(12);
+      setResults(data);
+    } catch (err: any) {
+      setError(
+        err?.response?.data?.detail ||
+          err?.message ||
+          "Nao foi possivel carregar os resultados de mineracao."
+      );
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSearch() {
+    try {
+      setLoading(true);
+      setError("");
+      const data = await searchMining({
+        query: searchTerm.trim() || "power",
+        genre: genreFilter || undefined,
+        content_type: contentType || undefined,
+      });
+      setResults(data);
+      if (data.length === 0) {
+        setError(
+          "Nenhuma oportunidade encontrada para essa busca. Tente termos como power, dark, matrix ou psychology."
+        );
+      }
+    } catch (err: any) {
+      setError(
+        err?.response?.data?.detail ||
+          err?.message ||
+          "Nao foi possivel executar a mineracao."
+      );
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadRecentResults();
+  }, []);
+
+  const filteredResults = useMemo(() => {
+    return results.filter((result) => {
+      const matchesSearch =
+        !searchTerm.trim() ||
+        result.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (result.synopsis || "").toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesGenre =
+        !genreFilter ||
+        (result.genre || "").toLowerCase() === genreFilter.toLowerCase();
+      const matchesType =
+        !contentType || (result.content_type || "").toLowerCase() === contentType;
+      return matchesSearch && matchesGenre && matchesType;
+    });
+  }, [results, searchTerm, genreFilter, contentType]);
 
   return (
     <AppLayout>
       <div className="space-y-6">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-text-primary">
-              Mineração de Oportunidades
+              Mineracao de Oportunidades
             </h1>
-            <p className="text-text-secondary text-sm mt-1">
-              Descubra tendências e histórias para criar narrativas poderosas
+            <p className="mt-1 text-sm text-text-secondary">
+              Busque temas e transforme resultados em projetos reais.
             </p>
           </div>
-          <Button variant="accent" className="space-x-2">
+          <Button
+            variant="accent"
+            className="space-x-2"
+            onClick={handleSearch}
+            disabled={loading}
+          >
             <Zap size={18} />
-            <span>Minerar Agora</span>
+            <span>{loading ? "Minerando..." : "Minerar Agora"}</span>
           </Button>
         </div>
 
-        {/* Filters */}
-        <div className="bg-bg-surface border border-border rounded-xs p-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Search */}
-            <div className="relative">
+        {error && (
+          <div className="rounded-xs border border-status-danger/30 bg-status-danger/10 px-4 py-3 text-sm text-status-danger">
+            {error}
+          </div>
+        )}
+
+        <div className="rounded-xs border border-border bg-bg-surface p-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+            <div className="relative md:col-span-2">
               <Search
                 size={18}
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
               />
               <Input
-                placeholder="Buscar oportunidades..."
+                placeholder="Ex: power, matrix, psychology..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
               />
             </div>
 
-            {/* Genre Filter */}
             <Select
               value={genreFilter}
               onChange={(e) => setGenreFilter(e.target.value)}
             >
-              <option value="">Todos os Gêneros</option>
-              <option value="Tecnologia">Tecnologia</option>
-              <option value="Ciência">Ciência</option>
-              <option value="Negócios">Negócios</option>
-              <option value="Ambiental">Ambiental</option>
-              <option value="Comportamento">Comportamento</option>
-              <option value="Finanças">Finanças</option>
+              <option value="">Todos os Generos</option>
+              {genreOptions.map((genre) => (
+                <option key={genre} value={genre}>
+                  {genre}
+                </option>
+              ))}
             </Select>
 
-            {/* Year Range */}
-            <Select value={yearRange} onChange={(e) => setYearRange(e.target.value)}>
-              <option value="">Qualquer Ano</option>
-              <option value="2024">2024</option>
-              <option value="2023">2023</option>
-              <option value="2022">2022</option>
+            <Select
+              value={contentType}
+              onChange={(e) => setContentType(e.target.value)}
+            >
+              {contentTypeOptions.map((option) => (
+                <option key={option.value || "all"} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </Select>
           </div>
         </div>
 
-        {/* Opportunities Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredOpportunities.map((opp) => (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {filteredResults.map((opp) => (
             <Card key={opp.id} interactive>
               <CardContent className="pt-6">
                 <div className="space-y-4">
-                  {/* Title and Genre */}
                   <div>
-                    <h3 className="text-base font-bold text-text-primary mb-2 line-clamp-2">
+                    <h3 className="mb-2 line-clamp-2 text-base font-bold text-text-primary">
                       {opp.title}
                     </h3>
                     <div className="flex items-center space-x-2">
                       <Badge variant="accent" size="sm">
-                        {opp.type}
+                        {opp.content_type || "unknown"}
                       </Badge>
-                      <Badge size="sm">{opp.genre}</Badge>
+                      {opp.year && <Badge size="sm">{opp.year}</Badge>}
                     </div>
                   </div>
 
-                  {/* Synopsis */}
-                  <p className="text-sm text-text-secondary line-clamp-2">
-                    {opp.synopsis}
+                  <p className="line-clamp-3 text-sm text-text-secondary">
+                    {opp.synopsis || "Sem sinopse disponivel para esta oportunidade."}
                   </p>
 
-                  {/* Opportunity Score */}
                   <div>
-                    <div className="flex items-center justify-between mb-2">
+                    <div className="mb-2 flex items-center justify-between">
                       <span className="text-xs text-text-muted">
                         Score de Oportunidade
                       </span>
-                      <span className={`text-sm font-bold ${getScoreColor(opp.score)}`}>
-                        {opp.score}
+                      <span className={`text-sm font-bold ${getScoreColor(opp.opportunity_score)}`}>
+                        {Math.round(opp.opportunity_score)}
                       </span>
                     </div>
                     <Progress
-                      value={opp.score}
-                      variant={opp.score >= 90 ? "success" : opp.score >= 80 ? "warning" : "danger"}
+                      value={Math.round(opp.opportunity_score)}
+                      variant={
+                        opp.opportunity_score >= 90
+                          ? "success"
+                          : opp.opportunity_score >= 80
+                            ? "warning"
+                            : "danger"
+                      }
                     />
                   </div>
 
-                  {/* YouTube Stats */}
-                  <div className="bg-bg-surface-2 rounded-xs p-3 space-y-2">
-                    <p className="text-xs text-text-muted font-semibold">
-                      ESTATÍSTICAS YOUTUBE
+                  <div className="rounded-xs bg-bg-surface-2 p-3 space-y-2">
+                    <p className="text-xs font-semibold text-text-muted">
+                      ESTATISTICAS
                     </p>
                     <div className="flex items-center justify-between text-xs">
-                      <span className="text-text-secondary">
-                        👁️ Visualizações
-                      </span>
+                      <span className="text-text-secondary">Rating</span>
                       <span className="font-mono text-text-primary">
-                        {(opp.ytStats.views / 1000000).toFixed(1)}M
+                        {opp.tmdb_rating?.toFixed(1) || "n/a"}
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-xs">
-                      <span className="text-text-secondary">👍 Curtidas</span>
+                      <span className="text-text-secondary">Videos YouTube</span>
                       <span className="font-mono text-text-primary">
-                        {(opp.ytStats.likes / 1000).toFixed(0)}K
+                        {formatCompactNumber(opp.yt_video_count)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-xs">
-                      <span className="text-text-secondary">💬 Comentários</span>
+                      <span className="text-text-secondary">Views medias</span>
                       <span className="font-mono text-text-primary">
-                        {(opp.ytStats.comments / 1000).toFixed(1)}K
+                        {formatCompactNumber(opp.yt_avg_views)}
                       </span>
                     </div>
                   </div>
 
-                  {/* Action Button */}
-                  <Link href={`/projects/new`}>
-                    <Button variant="accent" size="sm" className="w-full justify-center space-x-2">
+                  <Link href={buildProjectQuery(opp)}>
+                    <Button
+                      variant="accent"
+                      size="sm"
+                      className="w-full justify-center space-x-2"
+                    >
                       <Plus size={16} />
                       <span>Criar Projeto</span>
                     </Button>
@@ -245,12 +274,14 @@ export default function MiningPage() {
           ))}
         </div>
 
-        {filteredOpportunities.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-text-muted mb-4">
-              Nenhuma oportunidade encontrada
+        {!loading && filteredResults.length === 0 && !error && (
+          <div className="py-12 text-center">
+            <p className="mb-4 text-text-muted">
+              Nenhuma oportunidade encontrada.
             </p>
-            <Button variant="accent">Tentar Novamente</Button>
+            <Button variant="accent" onClick={handleSearch}>
+              Buscar novamente
+            </Button>
           </div>
         )}
       </div>

@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import {
   Download,
   Eye,
@@ -57,11 +58,9 @@ function formatDate(value: string) {
   return new Date(value).toLocaleString("pt-BR");
 }
 
-export default function ExportPage({
-  params,
-}: {
-  params: { id: string };
-}) {
+export default function ExportPage() {
+  const params = useParams<{ id: string }>();
+  const projectId = Array.isArray(params.id) ? params.id[0] : params.id;
   const [projectTitle, setProjectTitle] = useState("Projeto");
   const [stats, setStats] = useState<ExportStats | null>(null);
   const [jobs, setJobs] = useState<ExportJob[]>([]);
@@ -76,12 +75,13 @@ export default function ExportPage({
       setLoading(true);
       setError("");
 
-      const project = await fetchProject(params.id);
+      if (!projectId) return;
+      const project = await fetchProject(projectId);
       setProjectTitle(project.title);
 
       const [statsData, jobsData] = await Promise.all([
-        fetchExportStats(params.id),
-        fetchExportJobs(params.id),
+        fetchExportStats(projectId),
+        fetchExportJobs(projectId),
       ]);
 
       setStats(statsData);
@@ -95,7 +95,7 @@ export default function ExportPage({
     } finally {
       setLoading(false);
     }
-  }, [params.id]);
+  }, [projectId]);
 
   useEffect(() => {
     loadExportData();
@@ -105,7 +105,8 @@ export default function ExportPage({
     try {
       setGeneratingScript(true);
       setMessage("");
-      const result = await generateScript(params.id);
+      if (!projectId) return;
+      const result = await generateScript(projectId);
       setMessage(`${result.chapters_created} capitulos gerados. Agora voce pode exportar.`);
       await loadExportData();
     } catch (err: any) {
@@ -123,7 +124,8 @@ export default function ExportPage({
     try {
       setRunningExport(exportType);
       setMessage("");
-      await runExport(params.id, exportType);
+      if (!projectId) return;
+      await runExport(projectId, exportType);
       setMessage(`Exportacao ${exportType} disparada com sucesso.`);
       await loadExportData();
     } catch (err: any) {
@@ -194,7 +196,7 @@ export default function ExportPage({
                 >
                   {generatingScript ? "Gerando roteiro..." : "Gerar roteiro"}
                 </Button>
-                <Link href={`/projects/${params.id}`}>
+                <Link href={`/projects/${projectId}`}>
                   <Button variant="ghost">Voltar ao projeto</Button>
                 </Link>
               </div>

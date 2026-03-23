@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import { Download, RefreshCcw, Sparkles, Waves } from "lucide-react";
 
 import { AppLayout } from "@/components/layout/app-layout";
@@ -41,11 +42,9 @@ function formatDuration(seconds?: number | null) {
   return `${minutes}m ${remaining.toString().padStart(2, "0")}s`;
 }
 
-export default function VoiceStudioPage({
-  params,
-}: {
-  params: { id: string };
-}) {
+export default function VoiceStudioPage() {
+  const params = useParams<{ id: string }>();
+  const projectId = Array.isArray(params.id) ? params.id[0] : params.id;
   const [projectTitle, setProjectTitle] = useState("Projeto");
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [segments, setSegments] = useState<VoiceSegment[]>([]);
@@ -63,11 +62,13 @@ export default function VoiceStudioPage({
       setLoading(true);
       setError("");
 
+      if (!projectId) return;
+
       const [project, models, chapterList, segmentList] = await Promise.all([
-        fetchProject(params.id),
+        fetchProject(projectId),
         fetchVoiceModels(),
-        fetchChapters(params.id),
-        fetchVoiceSegments(params.id),
+        fetchChapters(projectId),
+        fetchVoiceSegments(projectId),
       ]);
 
       setProjectTitle(project.title);
@@ -95,7 +96,7 @@ export default function VoiceStudioPage({
     } finally {
       setLoading(false);
     }
-  }, [params.id]);
+  }, [projectId]);
 
   useEffect(() => {
     loadVoiceStudio();
@@ -127,7 +128,8 @@ export default function VoiceStudioPage({
     try {
       setGeneratingScript(true);
       setActionMessage("");
-      const result = await generateScript(params.id);
+      if (!projectId) return;
+      const result = await generateScript(projectId);
       setActionMessage(`${result.chapters_created} capitulos gerados com sucesso.`);
       await loadVoiceStudio();
     } catch (err: any) {
@@ -268,7 +270,7 @@ export default function VoiceStudioPage({
                 >
                   {generatingScript ? "Gerando roteiro..." : "Gerar roteiro agora"}
                 </Button>
-                <Link href={`/projects/${params.id}`}>
+                <Link href={`/projects/${projectId}`}>
                   <Button variant="ghost">Voltar ao projeto</Button>
                 </Link>
               </div>
