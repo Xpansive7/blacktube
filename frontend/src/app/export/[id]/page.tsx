@@ -1,262 +1,307 @@
 "use client";
 
-import React, { useState } from "react";
-import { Download, FileJson, FileText, Eye, Trash2, Clock, CheckCircle } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import {
+  Download,
+  Eye,
+  FileJson,
+  FileText,
+  RefreshCcw,
+  Sparkles,
+} from "lucide-react";
+
 import { AppLayout } from "@/components/layout/app-layout";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  fetchExportJobs,
+  fetchExportStats,
+  runExport,
+  type ExportJob,
+  type ExportStats,
+} from "@/lib/exports";
+import { fetchProject } from "@/lib/projects";
+import { generateScript } from "@/lib/scripts";
 
 const exportTypes = [
   {
-    id: "json",
+    id: "json" as const,
     name: "Exportar como JSON",
     icon: FileJson,
-    description: "Estrutura completa do projeto em formato JSON",
-    size: "2.4 MB",
-    format: ".json",
+    description: "Estrutura completa do projeto para integracoes e auditoria.",
   },
   {
-    id: "txt",
-    name: "Exportar como TXT",
+    id: "txt" as const,
+    name: "Exportar roteiro TXT",
     icon: FileText,
-    description: "Roteiro completo em texto simples",
-    size: "850 KB",
-    format: ".txt",
+    description: "Versao textual formatada para leitura e revisao.",
   },
   {
-    id: "render",
-    name: "Plano de Renderização",
+    id: "render-plan" as const,
+    name: "Plano de renderizacao",
     icon: Eye,
-    description: "Especificações técnicas para renderização de vídeo",
-    size: "1.2 MB",
-    format: ".pdf",
+    description: "Resumo tecnico para timeline e edicao externa.",
   },
 ];
 
-const mockExportHistory = [
-  {
-    id: "1",
-    name: "A Revolução do Streaming - JSON",
-    type: "JSON",
-    status: "completed",
-    date: "2024-03-15 14:30",
-    size: "2.4 MB",
-    duration: "2min 34s",
-  },
-  {
-    id: "2",
-    name: "A Revolução do Streaming - TXT",
-    type: "TXT",
-    status: "completed",
-    date: "2024-03-15 14:15",
-    size: "850 KB",
-    duration: "45s",
-  },
-  {
-    id: "3",
-    name: "A Revolução do Streaming - Render Plan",
-    type: "PDF",
-    status: "processing",
-    date: "2024-03-15 14:00",
-    size: "—",
-    duration: "Processando...",
-  },
-  {
-    id: "4",
-    name: "A Revolução do Streaming - JSON",
-    type: "JSON",
-    status: "completed",
-    date: "2024-03-14 09:20",
-    size: "2.3 MB",
-    duration: "2min 12s",
-  },
-];
-
-const statusBadgeVariant: Record<string, "success" | "warning" | "default" | "danger"> = {
+const statusVariant: Record<string, "success" | "warning" | "default" | "danger"> = {
   completed: "success",
   processing: "warning",
+  pending: "default",
   failed: "danger",
 };
 
-const statusLabels: Record<string, string> = {
-  completed: "Concluído",
-  processing: "Processando",
-  failed: "Falhou",
-};
+function formatDate(value: string) {
+  return new Date(value).toLocaleString("pt-BR");
+}
 
-export default function ExportPage({ params }: { params: { id: string } }) {
-  const [selectedType, setSelectedType] = useState("");
+export default function ExportPage({
+  params,
+}: {
+  params: { id: string };
+}) {
+  const [projectTitle, setProjectTitle] = useState("Projeto");
+  const [stats, setStats] = useState<ExportStats | null>(null);
+  const [jobs, setJobs] = useState<ExportJob[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [runningExport, setRunningExport] = useState<string | null>(null);
+  const [generatingScript, setGeneratingScript] = useState(false);
+
+  const loadExportData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const project = await fetchProject(params.id);
+      setProjectTitle(project.title);
+
+      const [statsData, jobsData] = await Promise.all([
+        fetchExportStats(params.id),
+        fetchExportJobs(params.id),
+      ]);
+
+      setStats(statsData);
+      setJobs(jobsData);
+    } catch (err: any) {
+      setError(
+        err?.response?.data?.detail ||
+          err?.message ||
+          "Nao foi possivel carregar a central de exportacao."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [params.id]);
+
+  useEffect(() => {
+    loadExportData();
+  }, [loadExportData]);
+
+  async function handleGenerateScript() {
+    try {
+      setGeneratingScript(true);
+      setMessage("");
+      const result = await generateScript(params.id);
+      setMessage(`${result.chapters_created} capitulos gerados. Agora voce pode exportar.`);
+      await loadExportData();
+    } catch (err: any) {
+      setError(
+        err?.response?.data?.detail ||
+          err?.message ||
+          "Nao foi possivel gerar o roteiro base."
+      );
+    } finally {
+      setGeneratingScript(false);
+    }
+  }
+
+  async function handleRunExport(exportType: "json" | "txt" | "render-plan") {
+    try {
+      setRunningExport(exportType);
+      setMessage("");
+      await runExport(params.id, exportType);
+      setMessage(`Exportacao ${exportType} disparada com sucesso.`);
+      await loadExportData();
+    } catch (err: any) {
+      setError(
+        err?.response?.data?.detail ||
+          err?.message ||
+          "Nao foi possivel iniciar a exportacao."
+      );
+    } finally {
+      setRunningExport(null);
+    }
+  }
+
+  const hasScript = useMemo(() => (stats?.chapter_count || 0) > 0, [stats]);
 
   return (
     <AppLayout>
       <div className="space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-2xl font-bold text-text-primary">Exportar Projeto</h1>
-          <p className="text-text-secondary text-sm mt-1">
-            Exporte seu projeto em diferentes formatos para distribuição e processamento
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-text-primary">Exportar Projeto</h1>
+            <p className="mt-1 text-sm text-text-secondary">
+              Gere saidas estruturadas para {projectTitle}
+            </p>
+          </div>
+          <Button variant="ghost" onClick={loadExportData} className="space-x-2">
+            <RefreshCcw size={16} />
+            <span>Atualizar</span>
+          </Button>
         </div>
 
-        {/* Export Type Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {exportTypes.map((type) => {
-            const Icon = type.icon;
-            return (
-              <Card
-                key={type.id}
-                interactive
-                className={selectedType === type.id ? "border-border-active" : ""}
-                onClick={() => setSelectedType(type.id)}
-              >
-                <CardContent className="pt-6">
-                  <div className="space-y-4">
-                    {/* Icon */}
-                    <div className="w-12 h-12 bg-accent/20 rounded-xs flex items-center justify-center">
-                      <Icon size={24} className="text-accent" />
-                    </div>
+        {error && (
+          <div className="rounded-xs border border-status-danger/30 bg-status-danger/10 px-4 py-3 text-sm text-status-danger">
+            {error}
+          </div>
+        )}
 
-                    {/* Title and Description */}
-                    <div>
-                      <h3 className="font-bold text-text-primary mb-1">
-                        {type.name}
-                      </h3>
-                      <p className="text-sm text-text-secondary">
-                        {type.description}
-                      </p>
-                    </div>
+        {message && (
+          <div className="rounded-xs border border-status-success/30 bg-status-success/10 px-4 py-3 text-sm text-status-success">
+            {message}
+          </div>
+        )}
 
-                    {/* Details */}
-                    <div className="bg-bg-surface-2 rounded-xs p-3 space-y-2">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-text-muted">Formato</span>
-                        <code className="font-mono text-text-primary">
-                          {type.format}
-                        </code>
-                      </div>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-text-muted">Tamanho Estimado</span>
-                        <span className="font-mono text-text-primary">
-                          {type.size}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Export Button */}
-                    <Button
-                      variant={selectedType === type.id ? "accent" : "ghost"}
-                      className="w-full justify-center space-x-2"
-                    >
-                      <Download size={16} />
-                      <span>Exportar</span>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-
-        {/* Export Settings */}
-        {selectedType && (
+        {loading ? (
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Opções de Exportação</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-3">
-                <label className="flex items-center space-x-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    defaultChecked
-                    className="w-4 h-4 rounded-xs border border-border bg-bg-surface cursor-pointer accent-accent"
-                  />
-                  <span className="text-sm text-text-primary">
-                    Incluir Metadados Completos
-                  </span>
-                </label>
-                <label className="flex items-center space-x-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    defaultChecked
-                    className="w-4 h-4 rounded-xs border border-border bg-bg-surface cursor-pointer accent-accent"
-                  />
-                  <span className="text-sm text-text-primary">
-                    Incluir Histórico de Versões
-                  </span>
-                </label>
-                <label className="flex items-center space-x-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="w-4 h-4 rounded-xs border border-border bg-bg-surface cursor-pointer accent-accent"
-                  />
-                  <span className="text-sm text-text-primary">
-                    Comprimir Arquivo
-                  </span>
-                </label>
+            <CardContent className="py-10 text-center text-text-secondary">
+              Carregando dados de exportacao...
+            </CardContent>
+          </Card>
+        ) : !hasScript ? (
+          <Card>
+            <CardContent className="space-y-4 py-10 text-center">
+              <Sparkles className="mx-auto text-accent" size={28} />
+              <div>
+                <h2 className="text-lg font-semibold text-text-primary">
+                  Ainda nao ha roteiro para exportar
+                </h2>
+                <p className="mt-2 text-sm text-text-secondary">
+                  Gere os capitulos primeiro. Depois o BlackTube pode produzir
+                  JSON, TXT e plano de renderizacao para esse projeto.
+                </p>
+              </div>
+              <div className="flex items-center justify-center gap-2">
+                <Button
+                  variant="accent"
+                  onClick={handleGenerateScript}
+                  disabled={generatingScript}
+                >
+                  {generatingScript ? "Gerando roteiro..." : "Gerar roteiro"}
+                </Button>
+                <Link href={`/projects/${params.id}`}>
+                  <Button variant="ghost">Voltar ao projeto</Button>
+                </Link>
               </div>
             </CardContent>
           </Card>
-        )}
+        ) : (
+          <>
+            {stats && (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-xs text-text-muted">Capitulos</p>
+                    <p className="mt-1 text-2xl font-bold text-text-primary">{stats.chapter_count}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-xs text-text-muted">Palavras</p>
+                    <p className="mt-1 text-2xl font-bold text-text-primary">{stats.word_count}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-xs text-text-muted">Duracao estimada</p>
+                    <p className="mt-1 text-2xl font-bold text-text-primary">
+                      {stats.total_duration_minutes.toFixed(1)} min
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-xs text-text-muted">Segmentos de voz</p>
+                    <p className="mt-1 text-2xl font-bold text-text-primary">
+                      {stats.voice_segment_count}
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
 
-        {/* Export History */}
-        <div>
-          <h3 className="text-lg font-bold text-text-primary mb-4">
-            Histórico de Exportações
-          </h3>
-
-          <div className="space-y-3">
-            {mockExportHistory.map((export_) => (
-              <Card key={export_.id} className="p-4">
-                <div className="flex items-center justify-between">
-                  {/* Left Side */}
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-3 mb-2">
-                      <h4 className="font-semibold text-text-primary">
-                        {export_.name}
-                      </h4>
-                      <Badge variant="default" size="sm">
-                        {export_.type}
-                      </Badge>
-                      <Badge
-                        variant={statusBadgeVariant[export_.status] || "default"}
-                        size="sm"
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              {exportTypes.map((type) => {
+                const Icon = type.icon;
+                return (
+                  <Card key={type.id}>
+                    <CardContent className="space-y-4 p-5">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xs bg-accent/10 text-accent">
+                        <Icon size={22} />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-text-primary">{type.name}</h3>
+                        <p className="mt-1 text-sm text-text-secondary">{type.description}</p>
+                      </div>
+                      <Button
+                        variant="accent"
+                        className="w-full"
+                        onClick={() => handleRunExport(type.id)}
+                        disabled={runningExport === type.id}
                       >
-                        {statusLabels[export_.status]}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center space-x-4 text-sm text-text-secondary">
-                      <span>{export_.date}</span>
-                      <span className="font-mono">{export_.size}</span>
-                      <span className="flex items-center space-x-1">
-                        <Clock size={14} />
-                        <span>{export_.duration}</span>
-                      </span>
-                    </div>
-                  </div>
+                        {runningExport === type.id ? "Exportando..." : "Gerar arquivo"}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
 
-                  {/* Right Side */}
-                  <div className="flex items-center space-x-2">
-                    {export_.status === "completed" && (
-                      <>
-                        <Button variant="ghost" size="sm">
-                          <Download size={16} />
-                        </Button>
-                        <Button variant="ghost" size="sm">
-                          <Eye size={16} />
-                        </Button>
-                      </>
-                    )}
-                    <Button variant="ghost" size="sm">
-                      <Trash2 size={16} />
-                    </Button>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Historico de exportacoes</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {jobs.length === 0 ? (
+                  <div className="rounded-xs bg-bg-surface-2 px-4 py-6 text-center text-sm text-text-secondary">
+                    Nenhuma exportacao gerada ainda.
                   </div>
-                </div>
-              </Card>
-            ))}
-          </div>
-        </div>
+                ) : (
+                  jobs.map((job) => (
+                    <div
+                      key={job.id}
+                      className="flex flex-col gap-3 rounded-xs border border-border p-4 lg:flex-row lg:items-center lg:justify-between"
+                    >
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-text-primary">{job.export_type}</p>
+                          <Badge variant={statusVariant[job.status] || "default"}>
+                            {job.status}
+                          </Badge>
+                        </div>
+                        <p className="mt-1 text-xs text-text-muted">
+                          Criado em {formatDate(job.created_at)}
+                        </p>
+                        <p className="mt-1 text-xs text-text-muted">
+                          Saida registrada: {job.output_path || "nao informada"}
+                        </p>
+                      </div>
+                      <Button variant="ghost" disabled className="space-x-2">
+                        <Download size={16} />
+                        <span>Download indisponivel</span>
+                      </Button>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
     </AppLayout>
   );

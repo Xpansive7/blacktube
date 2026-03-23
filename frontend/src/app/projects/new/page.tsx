@@ -1,181 +1,135 @@
 "use client";
 
 import React, { useState } from "react";
-import { ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
+
 import { AppLayout } from "@/components/layout/app-layout";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
+import { Textarea } from "@/components/ui/textarea";
+import api, { assertApiConfigured } from "@/lib/api";
+import { mapProject } from "@/lib/projects";
+import { useProjectStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 const narrativeModes = [
-  {
-    id: "epic",
-    name: "Épico",
-    description: "Narrativa grandiosa e monumental",
-    intensity: 9,
-  },
-  {
-    id: "dramatic",
-    name: "Dramatizado",
-    description: "Foco em conflito e emoção",
-    intensity: 8,
-  },
-  {
-    id: "documentary",
-    name: "Documental",
-    description: "Fatos e informações precisas",
-    intensity: 5,
-  },
-  {
-    id: "inspiring",
-    name: "Inspirador",
-    description: "Motivação e esperança",
-    intensity: 7,
-  },
-  {
-    id: "emotional",
-    name: "Emocional",
-    description: "Conexão profunda com sentimentos",
-    intensity: 8,
-  },
-  {
-    id: "educational",
-    name: "Educacional",
-    description: "Aprendizado e esclarecimento",
-    intensity: 4,
-  },
-  {
-    id: "humorous",
-    name: "Humorístico",
-    description: "Leveza e entretenimento",
-    intensity: 6,
-  },
-  {
-    id: "suspenseful",
-    name: "Suspensivo",
-    description: "Mistério e tensão",
-    intensity: 9,
-  },
-  {
-    id: "contemplative",
-    name: "Contemplativo",
-    description: "Reflexão e filosofia",
-    intensity: 6,
-  },
+  { id: "padrao", name: "Padrao", description: "Narrativa equilibrada", intensity: 5 },
+  { id: "retencao_maxima", name: "Retencao Maxima", description: "Foco em retenção", intensity: 9 },
+  { id: "investigativo", name: "Investigativo", description: "Conducao analitica", intensity: 7 },
+  { id: "psicologico", name: "Psicologico", description: "Enfase comportamental", intensity: 8 },
+  { id: "filosofico", name: "Filosofico", description: "Leitura reflexiva", intensity: 6 },
+  { id: "analise_poder", name: "Analise de Poder", description: "Estruturas e influencia", intensity: 8 },
+  { id: "teoria", name: "Teoria", description: "Construcao conceitual", intensity: 6 },
+  { id: "explicado_simples", name: "Explicado Simples", description: "Didatico e direto", intensity: 4 },
+  { id: "autoridade", name: "Autoridade", description: "Tom seguro e professoral", intensity: 7 },
 ];
 
 const visualPresets = [
-  {
-    id: "cinematic",
-    name: "Cinematográfico",
-    style: "Cores quentes, contraste alto",
-    colors: ["#FF6B35", "#004E89", "#1B6CA8"],
-    intensity: 8,
-  },
-  {
-    id: "minimalist",
-    name: "Minimalista",
-    style: "Simplicidade e elegância",
-    colors: ["#F5F5F5", "#2C2C2C", "#666666"],
-    intensity: 3,
-  },
-  {
-    id: "cyberpunk",
-    name: "Cyberpunk",
-    style: "Neon e futurista",
-    colors: ["#FF006E", "#8338EC", "#3A86FF"],
-    intensity: 9,
-  },
-  {
-    id: "naturalistic",
-    name: "Naturalista",
-    style: "Tons terra e orgânicos",
-    colors: ["#8B7355", "#D2B48C", "#228B22"],
-    intensity: 5,
-  },
-  {
-    id: "vintage",
-    name: "Retrô",
-    style: "Estética clássica",
-    colors: ["#C41E3A", "#FFD700", "#8B4513"],
-    intensity: 6,
-  },
-  {
-    id: "dark",
-    name: "Sombrio",
-    style: "Cores escuras e melancólicas",
-    colors: ["#1A1A1A", "#4A4A4A", "#2C2C54"],
-    intensity: 7,
-  },
+  { id: "cinematic", name: "Cinematografico", style: "Cores quentes, contraste alto", colors: ["#FF6B35", "#004E89", "#1B6CA8"], intensity: 8 },
+  { id: "minimalist", name: "Minimalista", style: "Simplicidade e elegancia", colors: ["#F5F5F5", "#2C2C2C", "#666666"], intensity: 3 },
+  { id: "cyberpunk", name: "Cyberpunk", style: "Neon e futurista", colors: ["#FF006E", "#8338EC", "#3A86FF"], intensity: 9 },
+  { id: "naturalistic", name: "Naturalista", style: "Tons terra e organicos", colors: ["#8B7355", "#D2B48C", "#228B22"], intensity: 5 },
 ];
 
+const projectTypeMap: Record<string, string> = {
+  documentary: "documentary",
+  series: "series_analysis",
+  short: "essay",
+  special: "reaction",
+};
+
+const awarenessLevelMap: Record<number, string> = {
+  1: "unaware",
+  2: "unaware",
+  3: "problem_aware",
+  4: "problem_aware",
+  5: "solution_aware",
+  6: "solution_aware",
+  7: "product_aware",
+  8: "product_aware",
+  9: "product_aware",
+  10: "product_aware",
+};
+
 export default function NewProjectPage() {
+  const router = useRouter();
+  const { setCurrentProject, addProject } = useProjectStore();
   const [step, setStep] = useState(1);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
   const [formData, setFormData] = useState({
     title: "",
     type: "documentary",
     source: "youtube",
     year: new Date().getFullYear(),
     synopsis: "",
-    narrativeMode: "epic",
+    narrativeMode: "padrao",
     awarenessLevel: 5,
     targetDuration: 60,
     visualPreset: "cinematic",
   });
 
-  const [selectedMode, setSelectedMode] = useState("epic");
-  const [selectedPreset, setSelectedPreset] = useState("cinematic");
-
-  const handleInputChange = (
-    field: string,
-    value: any
-  ) => {
+  const handleInputChange = (field: string, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleNext = () => {
-    if (step < 3) setStep(step + 1);
-  };
+  const handleCreate = async () => {
+    try {
+      setSubmitting(true);
+      setError("");
+      assertApiConfigured();
 
-  const handlePrevious = () => {
-    if (step > 1) setStep(step - 1);
-  };
+      const payload = {
+        title: formData.title,
+        project_type: projectTypeMap[formData.type] || "documentary",
+        source_title: formData.source,
+        source_year: formData.year,
+        synopsis: formData.synopsis,
+        output_language: "pt-BR",
+        target_duration_minutes: formData.targetDuration,
+        narrative_mode: formData.narrativeMode,
+        audience_awareness_level:
+          awarenessLevelMap[formData.awarenessLevel] || "solution_aware",
+      };
 
-  const handleCreate = () => {
-    console.log("Creating project:", formData);
-    // API call would go here
-  };
-
-  const getIntensityColor = (intensity: number) => {
-    if (intensity <= 3) return "text-status-success";
-    if (intensity <= 6) return "text-status-warning";
-    return "text-status-danger";
+      const response = await api.post("/projects", payload);
+      const project = mapProject(response.data);
+      addProject(project);
+      setCurrentProject(project);
+      router.push(`/projects/${project.id}`);
+    } catch (err: any) {
+      setError(
+        err?.response?.data?.detail ||
+          err?.message ||
+          "Nao foi possivel criar o projeto."
+      );
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
     <AppLayout>
-      <div className="max-w-4xl mx-auto space-y-6">
-        {/* Header */}
+      <div className="mx-auto max-w-4xl space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-text-primary mb-2">
+          <h1 className="mb-2 text-2xl font-bold text-text-primary">
             Criar Novo Projeto
           </h1>
           <p className="text-text-secondary">Passo {step} de 3</p>
         </div>
 
-        {/* Progress Indicator */}
         <div className="flex items-center space-x-4">
           {[1, 2, 3].map((s) => (
             <React.Fragment key={s}>
               <div
                 className={cn(
-                  "w-10 h-10 rounded-xs flex items-center justify-center font-bold transition-all",
+                  "flex h-10 w-10 items-center justify-center rounded-xs font-bold transition-all",
                   step === s
                     ? "bg-accent text-white shadow-lg shadow-accent-glow/30"
                     : step > s
@@ -188,7 +142,7 @@ export default function NewProjectPage() {
               {s < 3 && (
                 <div
                   className={cn(
-                    "flex-1 h-1 rounded-xs transition-all",
+                    "h-1 flex-1 rounded-xs transition-all",
                     step > s ? "bg-status-success" : "bg-bg-surface-2"
                   )}
                 />
@@ -197,89 +151,82 @@ export default function NewProjectPage() {
           ))}
         </div>
 
-        {/* Form Container */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Main Content */}
+        {error && (
+          <div className="rounded-xs border border-status-danger/30 bg-status-danger/10 px-4 py-3 text-sm text-status-danger">
+            {error}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2">
-            {/* Step 1: Basic Info */}
             {step === 1 && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Informações Básicas</CardTitle>
+                  <CardTitle>Informacoes Basicas</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-text-secondary mb-2">
-                      Título do Projeto
+                    <label className="mb-2 block text-sm font-medium text-text-secondary">
+                      Titulo do Projeto
                     </label>
                     <Input
-                      placeholder="Ex: A Revolução do Streaming"
+                      placeholder="Ex: A Revolucao do Streaming"
                       value={formData.title}
-                      onChange={(e) =>
-                        handleInputChange("title", e.target.value)
-                      }
+                      onChange={(e) => handleInputChange("title", e.target.value)}
                     />
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-text-secondary mb-2">
-                        Tipo de Conteúdo
+                      <label className="mb-2 block text-sm font-medium text-text-secondary">
+                        Tipo de Conteudo
                       </label>
                       <Select
                         value={formData.type}
-                        onChange={(e) =>
-                          handleInputChange("type", e.target.value)
-                        }
+                        onChange={(e) => handleInputChange("type", e.target.value)}
                       >
-                        <option value="documentary">Documentário</option>
-                        <option value="series">Série</option>
+                        <option value="documentary">Documentario</option>
+                        <option value="series">Serie</option>
                         <option value="short">Curta</option>
                         <option value="special">Especial</option>
                       </Select>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-text-secondary mb-2">
-                        Ano de Referência
+                      <label className="mb-2 block text-sm font-medium text-text-secondary">
+                        Ano de Referencia
                       </label>
                       <Input
                         type="number"
                         value={formData.year}
-                        onChange={(e) =>
-                          handleInputChange("year", parseInt(e.target.value))
-                        }
+                        onChange={(e) => handleInputChange("year", parseInt(e.target.value, 10))}
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-text-secondary mb-2">
+                    <label className="mb-2 block text-sm font-medium text-text-secondary">
                       Fonte Principal
                     </label>
                     <Select
                       value={formData.source}
-                      onChange={(e) =>
-                        handleInputChange("source", e.target.value)
-                      }
+                      onChange={(e) => handleInputChange("source", e.target.value)}
                     >
                       <option value="youtube">YouTube</option>
                       <option value="article">Artigo</option>
                       <option value="podcast">Podcast</option>
                       <option value="social">Rede Social</option>
-                      <option value="news">Notícia</option>
+                      <option value="news">Noticia</option>
                     </Select>
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-text-secondary mb-2">
+                    <label className="mb-2 block text-sm font-medium text-text-secondary">
                       Sinopse
                     </label>
                     <Textarea
-                      placeholder="Descrição breve do projeto..."
+                      placeholder="Descricao breve do projeto..."
                       value={formData.synopsis}
-                      onChange={(e) =>
-                        handleInputChange("synopsis", e.target.value)
-                      }
+                      onChange={(e) => handleInputChange("synopsis", e.target.value)}
                       rows={4}
                     />
                   </div>
@@ -287,7 +234,6 @@ export default function NewProjectPage() {
               </Card>
             )}
 
-            {/* Step 2: Narrative Config */}
             {step === 2 && (
               <div className="space-y-4">
                 <Card>
@@ -299,25 +245,18 @@ export default function NewProjectPage() {
                       {narrativeModes.map((mode) => (
                         <button
                           key={mode.id}
-                          onClick={() => {
-                            setSelectedMode(mode.id);
-                            handleInputChange("narrativeMode", mode.id);
-                          }}
+                          onClick={() => handleInputChange("narrativeMode", mode.id)}
                           className={cn(
-                            "p-4 rounded-xs border-2 transition-all text-left",
-                            selectedMode === mode.id
+                            "rounded-xs border-2 p-4 text-left transition-all",
+                            formData.narrativeMode === mode.id
                               ? "border-accent bg-accent/10 shadow-lg shadow-accent/20"
                               : "border-border bg-bg-surface hover:border-border-active"
                           )}
                         >
-                          <h4 className="font-semibold text-text-primary mb-1">
-                            {mode.name}
-                          </h4>
-                          <p className="text-xs text-text-secondary mb-2">
-                            {mode.description}
-                          </p>
+                          <h4 className="mb-1 font-semibold text-text-primary">{mode.name}</h4>
+                          <p className="mb-2 text-xs text-text-secondary">{mode.description}</p>
                           <div className="flex items-center space-x-2">
-                            <div className="flex-1 h-1 bg-bg-surface-2 rounded-xs overflow-hidden">
+                            <div className="h-1 flex-1 overflow-hidden rounded-xs bg-bg-surface-2">
                               <div
                                 className={cn(
                                   "h-full rounded-xs",
@@ -330,9 +269,7 @@ export default function NewProjectPage() {
                                 style={{ width: `${(mode.intensity / 10) * 100}%` }}
                               />
                             </div>
-                            <span className="text-xs font-mono text-text-muted">
-                              {mode.intensity}
-                            </span>
+                            <span className="text-xs font-mono text-text-muted">{mode.intensity}</span>
                           </div>
                         </button>
                       ))}
@@ -342,35 +279,28 @@ export default function NewProjectPage() {
 
                 <Card>
                   <CardHeader>
-                    <CardTitle>Configurações Avançadas</CardTitle>
+                    <CardTitle>Configuracoes Avancadas</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-6">
                     <div>
-                      <div className="flex items-center justify-between mb-3">
+                      <div className="mb-3 flex items-center justify-between">
                         <label className="text-sm font-medium text-text-secondary">
-                          Nível de Consciência
+                          Nivel de Consciencia
                         </label>
-                        <Badge variant="accent">
-                          {formData.awarenessLevel}/10
-                        </Badge>
+                        <Badge variant="accent">{formData.awarenessLevel}/10</Badge>
                       </div>
                       <Slider
                         min={1}
                         max={10}
                         value={formData.awarenessLevel}
-                        onChange={(val) =>
-                          handleInputChange("awarenessLevel", val)
-                        }
+                        onChange={(val) => handleInputChange("awarenessLevel", val)}
                       />
-                      <p className="text-xs text-text-muted mt-2">
-                        De inconsciente (1) a totalmente consciente (10)
-                      </p>
                     </div>
 
                     <div>
-                      <div className="flex items-center justify-between mb-3">
+                      <div className="mb-3 flex items-center justify-between">
                         <label className="text-sm font-medium text-text-secondary">
-                          Duração-Alvo
+                          Duracao-Alvo
                         </label>
                         <Badge variant="accent">{formData.targetDuration}min</Badge>
                       </div>
@@ -379,20 +309,14 @@ export default function NewProjectPage() {
                         max={300}
                         step={10}
                         value={formData.targetDuration}
-                        onChange={(val) =>
-                          handleInputChange("targetDuration", val)
-                        }
+                        onChange={(val) => handleInputChange("targetDuration", val)}
                       />
-                      <p className="text-xs text-text-muted mt-2">
-                        Duração estimada do conteúdo final
-                      </p>
                     </div>
                   </CardContent>
                 </Card>
               </div>
             )}
 
-            {/* Step 3: Visual Preset */}
             {step === 3 && (
               <Card>
                 <CardHeader>
@@ -403,51 +327,25 @@ export default function NewProjectPage() {
                     {visualPresets.map((preset) => (
                       <button
                         key={preset.id}
-                        onClick={() => {
-                          setSelectedPreset(preset.id);
-                          handleInputChange("visualPreset", preset.id);
-                        }}
+                        onClick={() => handleInputChange("visualPreset", preset.id)}
                         className={cn(
-                          "p-4 rounded-xs border-2 transition-all text-left",
-                          selectedPreset === preset.id
+                          "rounded-xs border-2 p-4 text-left transition-all",
+                          formData.visualPreset === preset.id
                             ? "border-accent bg-accent/10 shadow-lg shadow-accent/20"
                             : "border-border bg-bg-surface hover:border-border-active"
                         )}
                       >
-                        {/* Color Preview */}
-                        <div className="flex space-x-1 mb-3">
+                        <div className="mb-3 flex space-x-1">
                           {preset.colors.map((color, idx) => (
                             <div
                               key={idx}
-                              className="flex-1 h-8 rounded-xs"
+                              className="h-8 flex-1 rounded-xs"
                               style={{ backgroundColor: color }}
                             />
                           ))}
                         </div>
-                        <h4 className="font-semibold text-text-primary mb-1">
-                          {preset.name}
-                        </h4>
-                        <p className="text-xs text-text-secondary mb-2">
-                          {preset.style}
-                        </p>
-                        <div className="flex items-center space-x-2">
-                          <div className="flex-1 h-1 bg-bg-surface-2 rounded-xs overflow-hidden">
-                            <div
-                              className={cn(
-                                "h-full rounded-xs",
-                                preset.intensity > 6
-                                  ? "bg-status-danger"
-                                  : preset.intensity > 3
-                                    ? "bg-status-warning"
-                                    : "bg-status-success"
-                              )}
-                              style={{ width: `${(preset.intensity / 10) * 100}%` }}
-                            />
-                          </div>
-                          <span className="text-xs font-mono text-text-muted">
-                            {preset.intensity}
-                          </span>
-                        </div>
+                        <h4 className="mb-1 font-semibold text-text-primary">{preset.name}</h4>
+                        <p className="mb-2 text-xs text-text-secondary">{preset.style}</p>
                       </button>
                     ))}
                   </div>
@@ -456,7 +354,6 @@ export default function NewProjectPage() {
             )}
           </div>
 
-          {/* Preview Panel */}
           <div>
             <Card className="sticky top-20">
               <CardHeader>
@@ -465,80 +362,41 @@ export default function NewProjectPage() {
               <CardContent className="space-y-4 text-sm">
                 {formData.title && (
                   <div>
-                    <p className="text-text-muted mb-1">Título</p>
-                    <p className="text-text-primary font-medium">
-                      {formData.title}
-                    </p>
+                    <p className="mb-1 text-text-muted">Titulo</p>
+                    <p className="font-medium text-text-primary">{formData.title}</p>
                   </div>
                 )}
 
-                {step >= 1 && (
-                  <>
-                    <div>
-                      <p className="text-text-muted mb-1">Tipo</p>
-                      <p className="text-text-primary capitalize">
-                        {formData.type}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-text-muted mb-1">Ano</p>
-                      <p className="text-text-primary">{formData.year}</p>
-                    </div>
-                  </>
-                )}
+                <div>
+                  <p className="mb-1 text-text-muted">Tipo</p>
+                  <p className="capitalize text-text-primary">{formData.type}</p>
+                </div>
 
-                {step >= 2 && (
-                  <>
-                    <div>
-                      <p className="text-text-muted mb-1">Modo Narrativo</p>
-                      <Badge variant="accent" size="sm">
-                        {
-                          narrativeModes.find((m) => m.id === formData.narrativeMode)
-                            ?.name
-                        }
-                      </Badge>
-                    </div>
-                    <div>
-                      <p className="text-text-muted mb-1">Duração-Alvo</p>
-                      <p className="text-text-primary">
-                        {formData.targetDuration} minutos
-                      </p>
-                    </div>
-                  </>
-                )}
+                <div>
+                  <p className="mb-1 text-text-muted">Ano</p>
+                  <p className="text-text-primary">{formData.year}</p>
+                </div>
 
-                {step >= 3 && (
-                  <div>
-                    <p className="text-text-muted mb-2">Preset Visual</p>
-                    <div className="flex space-x-1">
-                      {visualPresets
-                        .find((p) => p.id === formData.visualPreset)
-                        ?.colors.map((color, idx) => (
-                          <div
-                            key={idx}
-                            className="flex-1 h-6 rounded-xs"
-                            style={{ backgroundColor: color }}
-                          />
-                        ))}
-                    </div>
-                    <p className="text-text-primary mt-2">
-                      {
-                        visualPresets.find((p) => p.id === formData.visualPreset)
-                          ?.name
-                      }
-                    </p>
-                  </div>
-                )}
+                <div>
+                  <p className="mb-1 text-text-muted">Modo Narrativo</p>
+                  <Badge variant="accent" size="sm">
+                    {narrativeModes.find((m) => m.id === formData.narrativeMode)?.name}
+                  </Badge>
+                </div>
+
+                <div>
+                  <p className="mb-1 text-text-muted">Duracao-Alvo</p>
+                  <p className="text-text-primary">{formData.targetDuration} minutos</p>
+                </div>
               </CardContent>
             </Card>
           </div>
         </div>
 
-        {/* Navigation Buttons */}
         <div className="flex items-center justify-between">
           <Button
             variant="ghost"
-            onClick={handlePrevious}
+            onClick={() => setStep((s) => Math.max(1, s - 1))}
             disabled={step === 1}
             className="space-x-2"
           >
@@ -552,8 +410,12 @@ export default function NewProjectPage() {
             </Link>
 
             {step < 3 ? (
-              <Button variant="accent" onClick={handleNext} className="space-x-2">
-                <span>Próximo</span>
+              <Button
+                variant="accent"
+                onClick={() => setStep((s) => Math.min(3, s + 1))}
+                className="space-x-2"
+              >
+                <span>Proximo</span>
                 <ChevronRight size={16} />
               </Button>
             ) : (
@@ -561,9 +423,10 @@ export default function NewProjectPage() {
                 variant="accent"
                 onClick={handleCreate}
                 className="space-x-2"
+                disabled={submitting || !formData.title.trim()}
               >
                 <Sparkles size={16} />
-                <span>Criar Projeto</span>
+                <span>{submitting ? "Criando..." : "Criar Projeto"}</span>
               </Button>
             )}
           </div>

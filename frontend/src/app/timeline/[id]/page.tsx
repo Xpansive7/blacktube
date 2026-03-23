@@ -1,262 +1,317 @@
 "use client";
 
-import React from "react";
-import { GripVertical, Clock, Mic2, Image as ImageIcon, MoreVertical } from "lucide-react";
+import React, { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import {
+  AlertTriangle,
+  Clock,
+  Image as ImageIcon,
+  Mic2,
+  RefreshCcw,
+  Sparkles,
+} from "lucide-react";
+
 import { AppLayout } from "@/components/layout/app-layout";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { fetchProject } from "@/lib/projects";
+import { generateScript } from "@/lib/scripts";
+import {
+  fetchTimeline,
+  fetchTimelineSummary,
+  validateTimeline,
+  type TimelineData,
+  type TimelineSummary,
+  type TimelineValidation,
+} from "@/lib/timeline";
 
-const mockTimeline = [
-  {
-    id: "1",
-    number: 1,
-    title: "Introdução: O Começo do Streaming",
-    type: "intro",
-    duration: 5,
-    voiceStatus: "completed",
-    assetCount: 3,
-    color: "bg-accent",
-  },
-  {
-    id: "2",
-    number: 2,
-    title: "A Revolução das Plataformas",
-    type: "narrative",
-    duration: 8,
-    voiceStatus: "completed",
-    assetCount: 5,
-    color: "bg-status-warning",
-  },
-  {
-    id: "3",
-    number: 3,
-    title: "Impacto Global",
-    type: "narrative",
-    duration: 6,
-    voiceStatus: "processing",
-    assetCount: 4,
-    color: "bg-status-danger",
-  },
-  {
-    id: "4",
-    number: 4,
-    title: "O Futuro do Entretenimento",
-    type: "conclusion",
-    duration: 7,
-    voiceStatus: "pending",
-    assetCount: 2,
-    color: "bg-status-success",
-  },
-];
-
-const totalDuration = mockTimeline.reduce((sum, ch) => sum + ch.duration, 0);
-
-const typeLabels: Record<string, string> = {
-  intro: "Introdução",
-  narrative: "Narrativa",
-  conclusion: "Conclusão",
-};
-
-const voiceStatusLabels: Record<string, string> = {
-  completed: "✓ Concluído",
-  processing: "⏳ Processando",
-  pending: "○ Pendente",
-};
-
-const voiceStatusColors: Record<string, string> = {
-  completed: "text-status-success",
-  processing: "text-status-warning",
-  pending: "text-text-muted",
-};
+function formatDuration(seconds: number) {
+  if (!seconds) return "--";
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remaining = Math.round(seconds % 60);
+  return `${minutes}m ${remaining.toString().padStart(2, "0")}s`;
+}
 
 export default function TimelinePage({
   params,
 }: {
   params: { id: string };
 }) {
+  const [projectTitle, setProjectTitle] = useState("Projeto");
+  const [timeline, setTimeline] = useState<TimelineData | null>(null);
+  const [summary, setSummary] = useState<TimelineSummary | null>(null);
+  const [validation, setValidation] = useState<TimelineValidation | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [generatingScript, setGeneratingScript] = useState(false);
+
+  const loadTimeline = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const project = await fetchProject(params.id);
+      setProjectTitle(project.title);
+
+      const [summaryData, validationData, timelineData] = await Promise.allSettled([
+        fetchTimelineSummary(params.id),
+        validateTimeline(params.id),
+        fetchTimeline(params.id),
+      ]);
+
+      if (summaryData.status === "fulfilled") setSummary(summaryData.value);
+      if (validationData.status === "fulfilled") setValidation(validationData.value);
+      if (timelineData.status === "fulfilled") setTimeline(timelineData.value);
+    } catch (err: any) {
+      setError(
+        err?.response?.data?.detail ||
+          err?.message ||
+          "Nao foi possivel carregar a timeline."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [params.id]);
+
+  useEffect(() => {
+    loadTimeline();
+  }, [loadTimeline]);
+
+  async function handleGenerateScript() {
+    try {
+      setGeneratingScript(true);
+      setMessage("");
+      const result = await generateScript(params.id);
+      setMessage(`${result.chapters_created} capitulos gerados para a timeline.`);
+      await loadTimeline();
+    } catch (err: any) {
+      setError(
+        err?.response?.data?.detail ||
+          err?.message ||
+          "Nao foi possivel gerar o roteiro."
+      );
+    } finally {
+      setGeneratingScript(false);
+    }
+  }
+
+  const hasChapters = (summary?.chapter_count || 0) > 0;
+
   return (
     <AppLayout>
       <div className="space-y-6">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-text-primary">Timeline</h1>
-            <p className="text-text-secondary text-sm mt-1">
-              Organize e visualize os capítulos do seu projeto
+            <p className="mt-1 text-sm text-text-secondary">
+              Visao estrutural do roteiro, voz e ativos de {projectTitle}
             </p>
           </div>
-          <Button variant="accent">+ Adicionar Capítulo</Button>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" onClick={loadTimeline} className="space-x-2">
+              <RefreshCcw size={16} />
+              <span>Atualizar</span>
+            </Button>
+            <Link href={`/voice/${params.id}`}>
+              <Button variant="accent">Ir para voz</Button>
+            </Link>
+          </div>
         </div>
 
-        {/* Total Duration */}
-        <Card className="bg-gradient-to-r from-accent/10 to-accent-glow/10 border-accent/30">
-          <CardContent className="pt-6">
-            <div className="flex items-center space-x-3">
-              <Clock size={24} className="text-accent" />
+        {error && (
+          <div className="rounded-xs border border-status-danger/30 bg-status-danger/10 px-4 py-3 text-sm text-status-danger">
+            {error}
+          </div>
+        )}
+
+        {message && (
+          <div className="rounded-xs border border-status-success/30 bg-status-success/10 px-4 py-3 text-sm text-status-success">
+            {message}
+          </div>
+        )}
+
+        {loading ? (
+          <Card>
+            <CardContent className="py-10 text-center text-text-secondary">
+              Carregando timeline...
+            </CardContent>
+          </Card>
+        ) : !hasChapters ? (
+          <Card>
+            <CardContent className="space-y-4 py-10 text-center">
+              <Sparkles className="mx-auto text-accent" size={28} />
               <div>
-                <p className="text-text-muted text-sm">Duração Total</p>
-                <p className="text-2xl font-bold text-text-primary">
-                  {totalDuration} minutos
+                <h2 className="text-lg font-semibold text-text-primary">
+                  Ainda nao existe roteiro para montar timeline
+                </h2>
+                <p className="mt-2 text-sm text-text-secondary">
+                  A timeline nasce dos capitulos do roteiro. Gere o script base e
+                  depois volte para revisar voz, duracao e validacao.
                 </p>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Horizontal Timeline View */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Visualização Horizontal</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-end space-x-2 overflow-x-auto pb-4">
-              {mockTimeline.map((chapter) => (
-                <div
-                  key={chapter.id}
-                  className="flex-shrink-0 flex flex-col items-center space-y-2"
-                  title={chapter.title}
+              <div className="flex items-center justify-center gap-2">
+                <Button
+                  variant="accent"
+                  onClick={handleGenerateScript}
+                  disabled={generatingScript}
                 >
-                  <div className="relative group">
-                    <div
-                      className={cn(
-                        "w-12 transition-all hover:w-16 cursor-pointer rounded-xs shadow-lg",
-                        chapter.color
-                      )}
-                      style={{
-                        height: `${chapter.duration * 10}px`,
-                      }}
-                    />
-                    <div className="absolute left-0 -top-8 opacity-0 group-hover:opacity-100 transition-opacity bg-bg-surface-3 border border-border rounded-xs p-2 whitespace-nowrap text-xs text-text-primary z-10">
-                      <p className="font-semibold">{chapter.title}</p>
-                      <p className="text-text-muted">{chapter.duration}min</p>
-                    </div>
+                  {generatingScript ? "Gerando roteiro..." : "Gerar roteiro"}
+                </Button>
+                <Link href={`/projects/${params.id}`}>
+                  <Button variant="ghost">Voltar ao projeto</Button>
+                </Link>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs text-text-muted">Capitulos</p>
+                  <p className="mt-1 text-2xl font-bold text-text-primary">
+                    {summary?.chapter_count || 0}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs text-text-muted">Duracao total</p>
+                  <p className="mt-1 text-2xl font-bold text-text-primary">
+                    {formatDuration(summary?.total_duration_seconds || 0)}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs text-text-muted">Assets</p>
+                  <p className="mt-1 text-2xl font-bold text-text-primary">
+                    {summary?.asset_count || 0}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs text-text-muted">Vozes</p>
+                  <p className="mt-1 text-2xl font-bold text-text-primary">
+                    {summary?.voice_segment_count || 0}
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {validation && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Validacao da Timeline</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Badge variant={validation.ready_to_render ? "success" : "warning"}>
+                      {validation.ready_to_render ? "Pronta para render" : "Precisa ajustes"}
+                    </Badge>
+                    <span className="text-sm text-text-secondary">
+                      {validation.chapter_count} capitulos · {validation.asset_count} assets · {validation.voice_count} vozes
+                    </span>
                   </div>
-                  <span className="text-xs font-bold text-text-secondary">
-                    {chapter.number}
-                  </span>
-                </div>
+
+                  {validation.issues.length > 0 && (
+                    <div className="rounded-xs border border-status-danger/30 bg-status-danger/10 p-4">
+                      <div className="mb-2 flex items-center gap-2 text-status-danger">
+                        <AlertTriangle size={16} />
+                        <span className="font-medium">Pendencias criticas</span>
+                      </div>
+                      <ul className="list-disc space-y-1 pl-5 text-sm text-text-primary">
+                        {validation.issues.map((issue) => (
+                          <li key={issue}>{issue}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {validation.warnings.length > 0 && (
+                    <div className="rounded-xs border border-status-warning/30 bg-status-warning/10 p-4">
+                      <p className="mb-2 font-medium text-status-warning">Avisos</p>
+                      <ul className="list-disc space-y-1 pl-5 text-sm text-text-primary">
+                        {validation.warnings.map((warning) => (
+                          <li key={warning}>{warning}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            <div className="space-y-3">
+              {timeline?.chapters.map((chapter) => (
+                <Card key={chapter.id}>
+                  <CardContent className="flex flex-col gap-4 p-5 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="flex-1 space-y-3">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-xs bg-accent/10 font-bold text-accent">
+                          {chapter.number}
+                        </div>
+                        <div>
+                          <h3 className="font-semibold text-text-primary">{chapter.title}</h3>
+                          <p className="text-xs text-text-muted">
+                            {chapter.type} · {chapter.timecode_in} - {chapter.timecode_out}
+                          </p>
+                        </div>
+                      </div>
+                      <p className="text-sm text-text-secondary">{chapter.content_preview}</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 lg:w-[340px]">
+                      <div className="rounded-xs bg-bg-surface-2 p-3">
+                        <div className="mb-2 flex items-center gap-2 text-text-muted">
+                          <Clock size={14} />
+                          <span className="text-xs">Duracao</span>
+                        </div>
+                        <p className="font-semibold text-text-primary">
+                          {formatDuration(chapter.duration_seconds)}
+                        </p>
+                      </div>
+                      <div className="rounded-xs bg-bg-surface-2 p-3">
+                        <div className="mb-2 flex items-center gap-2 text-text-muted">
+                          <ImageIcon size={14} />
+                          <span className="text-xs">Assets</span>
+                        </div>
+                        <p className="font-semibold text-text-primary">
+                          {chapter.assets.length}
+                        </p>
+                      </div>
+                      <div className="col-span-2 rounded-xs bg-bg-surface-2 p-3">
+                        <div className="mb-2 flex items-center gap-2 text-text-muted">
+                          <Mic2 size={14} />
+                          <span className="text-xs">Voz</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="font-semibold text-text-primary">
+                              {chapter.voice?.model || "Sem voz gerada"}
+                            </p>
+                            <p className="text-xs text-text-muted">
+                              {chapter.voice?.duration
+                                ? formatDuration(chapter.voice.duration)
+                                : "Geracao pendente"}
+                            </p>
+                          </div>
+                          <Badge variant={chapter.voice?.status === "ready" ? "success" : "default"}>
+                            {chapter.voice?.status || "pending"}
+                          </Badge>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
               ))}
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Detailed Timeline */}
-        <div className="space-y-3">
-          {mockTimeline.map((chapter, idx) => (
-            <Card key={chapter.id} className="p-4">
-              <div className="flex items-center justify-between gap-4">
-                {/* Left Side */}
-                <div className="flex items-center space-x-4 flex-1">
-                  <GripVertical
-                    size={20}
-                    className="text-text-muted cursor-grab active:cursor-grabbing flex-shrink-0"
-                  />
-
-                  <div
-                    className={cn(
-                      "w-3 h-3 rounded-full flex-shrink-0",
-                      chapter.color
-                    )}
-                  />
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center space-x-2 mb-1">
-                      <span className="text-lg font-bold text-accent w-8">
-                        {chapter.number}
-                      </span>
-                      <h3 className="font-semibold text-text-primary truncate">
-                        {chapter.title}
-                      </h3>
-                    </div>
-                    <div className="flex items-center space-x-3 text-xs text-text-secondary ml-10">
-                      <Badge variant="default" size="sm">
-                        {typeLabels[chapter.type]}
-                      </Badge>
-                      <span className="flex items-center space-x-1">
-                        <Clock size={12} />
-                        <span>{chapter.duration}min</span>
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Right Side */}
-                <div className="flex items-center space-x-4">
-                  {/* Voice Status */}
-                  <div className="text-right">
-                    <div className="flex items-center space-x-1 justify-end mb-1">
-                      <Mic2 size={14} className="text-text-muted" />
-                      <span
-                        className={cn(
-                          "text-xs font-semibold",
-                          voiceStatusColors[chapter.voiceStatus]
-                        )}
-                      >
-                        {voiceStatusLabels[chapter.voiceStatus]}
-                      </span>
-                    </div>
-                    <span className="text-xs text-text-muted">Narração</span>
-                  </div>
-
-                  {/* Asset Count */}
-                  <div className="text-right">
-                    <div className="flex items-center space-x-1 justify-end mb-1">
-                      <ImageIcon size={14} className="text-text-muted" />
-                      <span className="text-xs font-semibold text-text-primary">
-                        {chapter.assetCount}
-                      </span>
-                    </div>
-                    <span className="text-xs text-text-muted">Ativos</span>
-                  </div>
-
-                  {/* Progress Bar */}
-                  <div className="w-20 h-1.5 bg-bg-surface-2 rounded-xs overflow-hidden">
-                    <div
-                      className="h-full bg-accent transition-all"
-                      style={{
-                        width: `${chapter.voiceStatus === "completed" ? 100 : chapter.voiceStatus === "processing" ? 50 : 0}%`,
-                      }}
-                    />
-                  </div>
-
-                  {/* Menu */}
-                  <Button variant="ghost" size="sm" className="flex-shrink-0">
-                    <MoreVertical size={16} />
-                  </Button>
-                </div>
-              </div>
-            </Card>
-          ))}
-        </div>
-
-        {/* Legend */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Legenda</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-              <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 bg-accent rounded-full" />
-                <span className="text-text-secondary">Introdução</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 bg-status-warning rounded-full" />
-                <span className="text-text-secondary">Narrativa</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 bg-status-danger rounded-full" />
-                <span className="text-text-secondary">Narrativa 2</span>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 bg-status-success rounded-full" />
-                <span className="text-text-secondary">Conclusão</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+          </>
+        )}
       </div>
     </AppLayout>
   );

@@ -1,7 +1,9 @@
-import axios, { AxiosInstance, AxiosError } from "axios";
+import axios, { AxiosError, AxiosInstance } from "axios";
 import Cookies from "js-cookie";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  (process.env.NODE_ENV === "development" ? "http://localhost:8000" : "");
 
 const api: AxiosInstance = axios.create({
   baseURL: API_URL,
@@ -10,7 +12,6 @@ const api: AxiosInstance = axios.create({
   },
 });
 
-// JWT interceptor
 api.interceptors.request.use((config) => {
   const token = Cookies.get("auth_token");
 
@@ -21,19 +22,26 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Error interceptor
 api.interceptors.response.use(
   (response) => response,
   (error: AxiosError) => {
     if (error.response?.status === 401) {
-      // Clear auth token and redirect to login
       if (typeof window !== "undefined") {
-        localStorage.removeItem("auth_token");
+        Cookies.remove("auth_token");
+        window.localStorage.removeItem("auth-storage");
         window.location.href = "/login";
       }
     }
     return Promise.reject(error);
   }
 );
+
+export function assertApiConfigured() {
+  if (!API_URL) {
+    throw new Error(
+      "NEXT_PUBLIC_API_URL nao configurada. Defina a URL publica do backend."
+    );
+  }
+}
 
 export default api;

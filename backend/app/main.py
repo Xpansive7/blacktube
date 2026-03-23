@@ -18,7 +18,7 @@ from app.models.script import Base as ScriptBase
 from app.models.user import Base as UserBase
 from app.models.visual_preset import Base as PresetBase
 from app.models.voice import Base as VoiceBase
-from app.routers import assets, auth, export, mining, presets, projects, scripts, timeline, voice
+from app.routers import assets, auth, export, mining, presets, projects, scripts, settings as api_settings, timeline, voice
 
 settings = get_settings()
 
@@ -88,6 +88,7 @@ app.include_router(assets.router)
 app.include_router(voice.router)
 app.include_router(timeline.router)
 app.include_router(export.router)
+app.include_router(api_settings.router)
 
 
 if __name__ == "__main__":

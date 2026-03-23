@@ -1,10 +1,14 @@
+import Cookies from "js-cookie";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+
+import api, { assertApiConfigured } from "@/lib/api";
 
 interface User {
   id: string;
   email: string;
   name: string;
+  username?: string;
   avatar?: string;
 }
 
@@ -25,14 +29,14 @@ interface AuthState {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
-  setUser: (user: User) => void;
-  setToken: (token: string) => void;
+  setUser: (user: User | null) => void;
+  setToken: (token: string | null) => void;
 }
 
 interface ProjectState {
   currentProject: Project | null;
   projects: Project[];
-  setCurrentProject: (project: Project) => void;
+  setCurrentProject: (project: Project | null) => void;
   setProjects: (projects: Project[]) => void;
   addProject: (project: Project) => void;
 }
@@ -53,22 +57,42 @@ export const useAuthStore = create<AuthState>()(
       login: async (email: string, password: string) => {
         set({ isLoading: true });
         try {
-          // API call would go here
-          // const response = await api.post("/auth/login", { email, password });
-          // set({ user: response.data.user, token: response.data.token });
-          set({ isLoading: false });
+          assertApiConfigured();
+          const response = await api.post("/auth/login", { email, password });
+          const data = response.data;
+          const token = data.access_token as string;
+          const apiUser = data.user;
+
+          Cookies.set("auth_token", token, { expires: 7, sameSite: "lax" });
+
+          set({
+            user: {
+              id: apiUser.id,
+              email: apiUser.email,
+              username: apiUser.username,
+              name: apiUser.username || apiUser.email,
+            },
+            token,
+            isLoading: false,
+          });
         } catch (error) {
           set({ isLoading: false });
           throw error;
         }
       },
       logout: () => {
+        Cookies.remove("auth_token");
         set({ user: null, token: null });
       },
-      setUser: (user: User) => {
+      setUser: (user: User | null) => {
         set({ user });
       },
-      setToken: (token: string) => {
+      setToken: (token: string | null) => {
+        if (token) {
+          Cookies.set("auth_token", token, { expires: 7, sameSite: "lax" });
+        } else {
+          Cookies.remove("auth_token");
+        }
         set({ token });
       },
     }),
@@ -81,7 +105,7 @@ export const useAuthStore = create<AuthState>()(
 export const useProjectStore = create<ProjectState>()((set) => ({
   currentProject: null,
   projects: [],
-  setCurrentProject: (project: Project) => {
+  setCurrentProject: (project: Project | null) => {
     set({ currentProject: project });
   },
   setProjects: (projects: Project[]) => {
@@ -104,3 +128,5 @@ export const useUIStore = create<UIState>()((set) => ({
     set({ activeTab: tab });
   },
 }));
+
+export type { Project, User };

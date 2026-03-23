@@ -1,122 +1,82 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import {
-  Search,
-  Filter,
-  Clock,
-  Calendar,
-  User,
-  MoreVertical,
-} from "lucide-react";
+import { Calendar, Clock, Search } from "lucide-react";
+
 import { AppLayout } from "@/components/layout/app-layout";
-import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
+import { fetchProjects } from "@/lib/projects";
+import { useProjectStore } from "@/lib/store";
 
-const mockProjects = [
-  {
-    id: "1",
-    title: "A Revolução do Streaming",
-    type: "Documentário",
-    status: "Em Produção",
-    mode: "Épico",
-    duration: 45,
-    date: "2024-03-15",
-    creator: "João Silva",
-    color: "accent",
-  },
-  {
-    id: "2",
-    title: "Inovação Tecnológica",
-    type: "Série",
-    status: "Roteiro",
-    mode: "Dramatizado",
-    duration: 120,
-    date: "2024-03-10",
-    creator: "Maria Santos",
-    color: "success",
-  },
-  {
-    id: "3",
-    title: "Jornada do Empreendedor",
-    type: "Documentário",
-    status: "Publicado",
-    mode: "Inspirador",
-    duration: 60,
-    date: "2024-02-28",
-    creator: "Pedro Costa",
-    color: "default",
-  },
-  {
-    id: "4",
-    title: "Histórias de Impacto Social",
-    type: "Documentário",
-    status: "Revisão",
-    mode: "Emocional",
-    duration: 30,
-    date: "2024-03-01",
-    creator: "Ana Lima",
-    color: "warning",
-  },
-  {
-    id: "5",
-    title: "Futuros Possíveis",
-    type: "Série",
-    status: "Planejamento",
-    mode: "Especulativo",
-    duration: 180,
-    date: "2024-03-12",
-    creator: "Carlos Oliveira",
-    color: "danger",
-  },
-  {
-    id: "6",
-    title: "Vidas que Mudam",
-    type: "Documentário",
-    status: "Em Produção",
-    mode: "Comovente",
-    duration: 50,
-    date: "2024-03-08",
-    creator: "Fernanda Dias",
-    color: "accent",
-  },
-];
-
-const statusBadgeVariant: Record<string, "default" | "success" | "warning" | "danger" | "accent"> = {
-  "Em Produção": "accent",
-  "Roteiro": "warning",
-  "Publicado": "success",
-  "Revisão": "warning",
-  "Planejamento": "danger",
+const statusBadgeVariant: Record<
+  string,
+  "default" | "success" | "warning" | "danger" | "accent"
+> = {
+  draft: "default",
+  writing: "warning",
+  editing: "warning",
+  producing: "accent",
+  exported: "success",
 };
 
 export default function ProjectsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
-  const [typeFilter, setTypeFilter] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const { projects, setProjects, setCurrentProject } = useProjectStore();
 
-  const filteredProjects = mockProjects.filter((project) => {
-    const matchesSearch = project.title
-      .toLowerCase()
-      .includes(searchTerm.toLowerCase());
-    const matchesStatus = !statusFilter || project.status === statusFilter;
-    const matchesType = !typeFilter || project.type === typeFilter;
-    return matchesSearch && matchesStatus && matchesType;
-  });
+  useEffect(() => {
+    let active = true;
+
+    async function loadProjects() {
+      try {
+        setLoading(true);
+        setError("");
+        const data = await fetchProjects();
+        if (!active) return;
+        setProjects(data);
+      } catch (err: any) {
+        if (!active) return;
+        setError(
+          err?.response?.data?.detail ||
+            err?.message ||
+            "Nao foi possivel carregar os projetos."
+        );
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+
+    loadProjects();
+    return () => {
+      active = false;
+    };
+  }, [setProjects]);
+
+  const filteredProjects = useMemo(() => {
+    return projects.filter((project) => {
+      const matchesSearch = project.title
+        .toLowerCase()
+        .includes(searchTerm.toLowerCase());
+      const matchesStatus = !statusFilter || project.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    });
+  }, [projects, searchTerm, statusFilter]);
 
   return (
     <AppLayout>
       <div className="space-y-6">
-        {/* Header with New Project Button */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-text-primary">Meus Projetos</h1>
-            <p className="text-text-secondary text-sm mt-1">
-              {filteredProjects.length} projetos encontrados
+            <p className="mt-1 text-sm text-text-secondary">
+              {loading ? "Carregando..." : `${filteredProjects.length} projetos encontrados`}
             </p>
           </div>
           <Link href="/projects/new">
@@ -124,10 +84,8 @@ export default function ProjectsPage() {
           </Link>
         </div>
 
-        {/* Filters */}
-        <div className="bg-bg-surface border border-border rounded-xs p-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Search */}
+        <div className="rounded-xs border border-border bg-bg-surface p-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="relative">
               <Search
                 size={18}
@@ -141,45 +99,41 @@ export default function ProjectsPage() {
               />
             </div>
 
-            {/* Status Filter */}
             <Select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
             >
               <option value="">Todos os Status</option>
-              <option value="Em Produção">Em Produção</option>
-              <option value="Roteiro">Roteiro</option>
-              <option value="Publicado">Publicado</option>
-              <option value="Revisão">Revisão</option>
-              <option value="Planejamento">Planejamento</option>
-            </Select>
-
-            {/* Type Filter */}
-            <Select
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-            >
-              <option value="">Todos os Tipos</option>
-              <option value="Documentário">Documentário</option>
-              <option value="Série">Série</option>
-              <option value="Curta">Curta</option>
+              <option value="draft">Rascunho</option>
+              <option value="writing">Escrita</option>
+              <option value="editing">Edicao</option>
+              <option value="producing">Producao</option>
+              <option value="exported">Exportado</option>
             </Select>
           </div>
         </div>
 
-        {/* Projects Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {error && (
+          <div className="rounded-xs border border-status-danger/30 bg-status-danger/10 px-4 py-3 text-sm text-status-danger">
+            {error}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {filteredProjects.map((project) => (
-            <Link key={project.id} href={`/projects/${project.id}`}>
+            <Link
+              key={project.id}
+              href={`/projects/${project.id}`}
+              onClick={() => setCurrentProject(project)}
+            >
               <Card
                 interactive
-                className="h-full hover:border-border-active transition-all"
+                className="h-full transition-all hover:border-border-active"
               >
                 <CardContent className="pt-6">
                   <div className="space-y-4">
-                    {/* Title and Type */}
                     <div>
-                      <h3 className="text-lg font-bold text-text-primary mb-2">
+                      <h3 className="mb-2 text-lg font-bold text-text-primary">
                         {project.title}
                       </h3>
                       <div className="flex items-center space-x-2">
@@ -195,16 +149,14 @@ export default function ProjectsPage() {
                       </div>
                     </div>
 
-                    {/* Mode */}
                     <div>
-                      <p className="text-sm text-text-muted mb-1">Modo Narrativo</p>
+                      <p className="mb-1 text-sm text-text-muted">Modo Narrativo</p>
                       <p className="text-sm font-medium text-text-primary">
-                        {project.mode}
+                        {project.narrativeMode}
                       </p>
                     </div>
 
-                    {/* Details Grid */}
-                    <div className="grid grid-cols-3 gap-3 pt-2 border-t border-border">
+                    <div className="grid grid-cols-2 gap-3 border-t border-border pt-2">
                       <div className="flex items-center space-x-2 text-sm">
                         <Clock size={16} className="text-text-muted" />
                         <span className="text-text-secondary">
@@ -214,19 +166,12 @@ export default function ProjectsPage() {
                       </div>
                       <div className="flex items-center space-x-2 text-sm">
                         <Calendar size={16} className="text-text-muted" />
-                        <span className="text-text-secondary text-xs">
-                          {new Date(project.date).toLocaleDateString("pt-BR")}
-                        </span>
-                      </div>
-                      <div className="flex items-center space-x-2 text-sm">
-                        <User size={16} className="text-text-muted" />
-                        <span className="text-text-secondary text-xs truncate">
-                          {project.creator}
+                        <span className="text-xs text-text-secondary">
+                          {new Date(project.createdAt).toLocaleDateString("pt-BR")}
                         </span>
                       </div>
                     </div>
 
-                    {/* Action Button */}
                     <Button variant="ghost" size="sm" className="w-full justify-center">
                       Abrir Projeto
                     </Button>
@@ -237,9 +182,9 @@ export default function ProjectsPage() {
           ))}
         </div>
 
-        {filteredProjects.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-text-muted mb-4">Nenhum projeto encontrado</p>
+        {!loading && filteredProjects.length === 0 && !error && (
+          <div className="py-12 text-center">
+            <p className="mb-4 text-text-muted">Nenhum projeto encontrado</p>
             <Link href="/projects/new">
               <Button variant="accent">Criar Primeiro Projeto</Button>
             </Link>

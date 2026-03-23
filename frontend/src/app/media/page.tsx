@@ -1,74 +1,210 @@
 "use client";
 
-import React from "react";
-import { Upload, Search, Filter } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { ExternalLink, Loader2, Search, Video, Image as ImageIcon } from "lucide-react";
+
 import { AppLayout } from "@/components/layout/app-layout";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { fetchProjects } from "@/lib/projects";
+import { searchPexelsAssets, ExternalAssetResult } from "@/lib/assets";
+import type { Project } from "@/lib/store";
 
 export default function MediaPage() {
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [query, setQuery] = useState("cinematic city");
+  const [mediaType, setMediaType] = useState<"image" | "video">("image");
+  const [results, setResults] = useState<ExternalAssetResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    async function loadProjects() {
+      try {
+        const data = await fetchProjects();
+        setProjects(data);
+        if (data.length > 0) {
+          setSelectedProjectId(data[0].id);
+        }
+      } catch (err) {
+        setError("Nao foi possivel carregar os projetos.");
+      }
+    }
+
+    loadProjects();
+  }, []);
+
+  const selectedProject = useMemo(
+    () => projects.find((project) => project.id === selectedProjectId) || null,
+    [projects, selectedProjectId],
+  );
+
+  const handleSearch = async () => {
+    if (!selectedProjectId || !query.trim()) {
+      setError("Escolha um projeto e digite uma busca.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
+    try {
+      const data = await searchPexelsAssets(selectedProjectId, query.trim(), mediaType);
+      setResults(data.results);
+    } catch (err: any) {
+      setResults([]);
+      setError(err?.response?.data?.detail || "Falha ao buscar assets no Pexels.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <AppLayout>
       <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-text-primary">
-              Biblioteca de Mídia
-            </h1>
+            <h1 className="text-2xl font-bold text-text-primary">Biblioteca de Midia</h1>
             <p className="text-text-secondary text-sm mt-1">
-              Organize e gerencie todos os seus ativos de mídia
+              Busque imagens e videos do Pexels para abastecer seus projetos.
             </p>
           </div>
-          <Button variant="accent" className="space-x-2">
-            <Upload size={18} />
-            <span>Upload de Mídia</span>
-          </Button>
+          {selectedProject && <Badge variant="accent">Projeto atual: {selectedProject.title}</Badge>}
         </div>
 
-        {/* Filters */}
-        <div className="bg-bg-surface border border-border rounded-xs p-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="relative">
+        <div className="bg-bg-surface border border-border rounded-xs p-4 space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+            <select
+              value={selectedProjectId}
+              onChange={(event) => setSelectedProjectId(event.target.value)}
+              className="px-3 py-2 text-sm text-text-primary bg-bg-surface border border-border rounded-xs outline-none"
+            >
+              <option value="">Escolha um projeto</option>
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.title}
+                </option>
+              ))}
+            </select>
+
+            <div className="relative lg:col-span-2">
               <Search
                 size={18}
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
               />
               <Input
-                placeholder="Buscar mídia..."
+                placeholder="Buscar asset no Pexels..."
                 className="pl-10"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
               />
             </div>
-            <select className="px-3 py-2 text-sm text-text-primary bg-bg-surface border border-border rounded-xs outline-none">
-              <option>Todos os Tipos</option>
-              <option>Imagens</option>
-              <option>Vídeos</option>
-              <option>Áudio</option>
-            </select>
-            <select className="px-3 py-2 text-sm text-text-primary bg-bg-surface border border-border rounded-xs outline-none">
-              <option>Ordenar por</option>
-              <option>Data (Recente)</option>
-              <option>Nome (A-Z)</option>
-              <option>Tamanho</option>
+
+            <select
+              value={mediaType}
+              onChange={(event) => setMediaType(event.target.value as "image" | "video")}
+              className="px-3 py-2 text-sm text-text-primary bg-bg-surface border border-border rounded-xs outline-none"
+            >
+              <option value="image">Imagens</option>
+              <option value="video">Videos</option>
             </select>
           </div>
+
+          <div className="flex gap-2">
+            <Button variant="accent" onClick={handleSearch} disabled={loading || !selectedProjectId}>
+              {loading ? <Loader2 size={16} className="animate-spin mr-2" /> : <Search size={16} className="mr-2" />}
+              Buscar no Pexels
+            </Button>
+          </div>
+
+          {error && <p className="text-sm text-status-danger">{error}</p>}
         </div>
 
-        {/* Empty State */}
-        <Card>
-          <CardContent className="pt-12 pb-12 text-center">
-            <div className="mb-4 text-4xl">📁</div>
-            <h3 className="text-lg font-bold text-text-primary mb-2">
-              Nenhuma mídia ainda
-            </h3>
-            <p className="text-text-secondary mb-6">
-              Comece a adicionar imagens, vídeos e áudio para seus projetos
-            </p>
-            <Button variant="accent">Adicionar Primeira Mídia</Button>
-          </CardContent>
-        </Card>
+        {loading && (
+          <Card>
+            <CardContent className="pt-8 pb-8 flex items-center justify-center gap-2 text-text-secondary">
+              <Loader2 size={18} className="animate-spin" />
+              Buscando assets...
+            </CardContent>
+          </Card>
+        )}
+
+        {!loading && results.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {results.map((item) => (
+              <Card key={`${item.type}-${item.id}`}>
+                <CardContent className="pt-4 space-y-4">
+                  <div className="aspect-video bg-bg-surface-2 rounded-xs overflow-hidden border border-border">
+                    {item.preview ? (
+                      <img
+                        src={item.preview}
+                        alt={`Preview ${item.id}`}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-text-muted">
+                        Sem preview
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <Badge variant="default">
+                      <span className="flex items-center gap-1">
+                        {item.type === "video" ? <Video size={12} /> : <ImageIcon size={12} />}
+                        {item.type === "video" ? "Video" : "Imagem"}
+                      </span>
+                    </Badge>
+                    {item.author && (
+                      <span className="text-xs text-text-secondary truncate">por {item.author}</span>
+                    )}
+                  </div>
+
+                  <div className="text-xs text-text-muted space-y-1">
+                    <p>
+                      {item.width || "-"} x {item.height || "-"}
+                    </p>
+                    {item.duration ? <p>{item.duration}s</p> : null}
+                  </div>
+
+                  <div className="flex gap-2">
+                    {item.url && (
+                      <a href={item.url} target="_blank" rel="noreferrer" className="flex-1">
+                        <Button variant="ghost" size="sm" className="w-full">
+                          Abrir asset
+                        </Button>
+                      </a>
+                    )}
+                    {item.pexels_url && (
+                      <a href={item.pexels_url} target="_blank" rel="noreferrer">
+                        <Button variant="ghost" size="sm">
+                          <ExternalLink size={14} />
+                        </Button>
+                      </a>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+
+        {!loading && results.length === 0 && !error && (
+          <Card>
+            <CardContent className="pt-12 pb-12 text-center">
+              <div className="mb-4 text-4xl">Midia</div>
+              <h3 className="text-lg font-bold text-text-primary mb-2">
+                Sua busca do Pexels aparece aqui
+              </h3>
+              <p className="text-text-secondary">
+                Escolha um projeto, salve a chave do Pexels em Configuracoes e rode a busca.
+              </p>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </AppLayout>
   );

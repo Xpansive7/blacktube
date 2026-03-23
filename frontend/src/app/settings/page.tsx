@@ -1,311 +1,272 @@
 "use client";
 
-import React, { useState } from "react";
-import { Eye, EyeOff, CheckCircle, AlertCircle, Zap } from "lucide-react";
-import { AppLayout } from "@/components/layout/app-layout";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
+import React, { useEffect, useMemo, useState } from "react";
+import { AlertCircle, CheckCircle, Eye, EyeOff, Loader2, Save, Zap } from "lucide-react";
 
-const apiServices = [
-  {
-    id: "tmdb",
-    name: "TMDb (The Movie Database)",
-    description: "Dados sobre filmes e séries",
-    status: "connected",
-    apiKey: "••••••••••••••••••••••••••••••••••••••",
-    testStatus: "success",
-  },
-  {
-    id: "youtube",
-    name: "YouTube Data API",
-    description: "Acesso a dados de vídeos do YouTube",
-    status: "connected",
-    apiKey: "••••••••••••••••••••••••••••••••••••••",
-    testStatus: "success",
-  },
-  {
-    id: "pexels",
-    name: "Pexels API",
-    description: "Banco de imagens de alta qualidade",
-    status: "connected",
-    apiKey: "••••••••••••••••••••••••••••••••••••••",
-    testStatus: "success",
-  },
-  {
-    id: "openai",
-    name: "OpenAI API",
-    description: "Inteligência artificial para geração de conteúdo",
-    status: "connected",
-    apiKey: "••••••••••••••••••••••••••••••••••••••",
-    testStatus: "success",
-  },
-  {
-    id: "elevenlabs",
-    name: "ElevenLabs API",
-    description: "Geração de voz realista com IA",
-    status: "pending",
-    apiKey: "",
-    testStatus: "pending",
-  },
+import { AppLayout } from "@/components/layout/app-layout";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
+import {
+  APIServiceId,
+  APIServiceSetting,
+  fetchApiSettings,
+  saveApiSetting,
+  testApiSetting,
+} from "@/lib/api-settings";
+
+const serviceCatalog: Array<{
+  id: APIServiceId;
+  name: string;
+  description: string;
+}> = [
+  { id: "tmdb", name: "TMDb", description: "Dados sobre filmes e series" },
+  { id: "youtube", name: "YouTube Data API", description: "Dados de videos e canais do YouTube" },
+  { id: "pexels", name: "Pexels API", description: "Busca de imagens e videos cinematicos" },
+  { id: "openai", name: "OpenAI API", description: "Geracao de conteudo e automacoes com IA" },
+  { id: "elevenlabs", name: "ElevenLabs API", description: "Studio de voz e narracao com IA" },
 ];
 
-const statusBadgeVariant: Record<string, "success" | "warning" | "default" | "danger"> = {
-  connected: "success",
-  pending: "warning",
-  failed: "danger",
+const emptyState: Record<APIServiceId, APIServiceSetting> = {
+  tmdb: { service: "tmdb", api_key: "", is_active: false, configured: false, source: "unset", updated_at: null },
+  youtube: { service: "youtube", api_key: "", is_active: false, configured: false, source: "unset", updated_at: null },
+  pexels: { service: "pexels", api_key: "", is_active: false, configured: false, source: "unset", updated_at: null },
+  openai: { service: "openai", api_key: "", is_active: false, configured: false, source: "unset", updated_at: null },
+  elevenlabs: { service: "elevenlabs", api_key: "", is_active: false, configured: false, source: "unset", updated_at: null },
 };
 
-const statusLabels: Record<string, string> = {
-  connected: "Conectado",
-  pending: "Pendente",
-  failed: "Falhou",
-};
+function statusVariant(setting: APIServiceSetting): "success" | "warning" | "default" {
+  if (setting.configured) return "success";
+  return "warning";
+}
+
+function statusLabel(setting: APIServiceSetting): string {
+  if (!setting.configured) return "Nao configurada";
+  return setting.source === "env" ? "Vindo do ambiente" : "Configurada no usuario";
+}
 
 export default function SettingsPage() {
+  const [settings, setSettings] = useState<Record<APIServiceId, APIServiceSetting>>(emptyState);
+  const [drafts, setDrafts] = useState<Record<APIServiceId, string>>({
+    tmdb: "",
+    youtube: "",
+    pexels: "",
+    openai: "",
+    elevenlabs: "",
+  });
   const [visibleKeys, setVisibleKeys] = useState<Record<string, boolean>>({});
-  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState<APIServiceId | null>(null);
+  const [testingId, setTestingId] = useState<APIServiceId | null>(null);
+  const [messages, setMessages] = useState<Record<string, { ok: boolean; text: string }>>({});
 
-  const toggleKeyVisibility = (id: string) => {
-    setVisibleKeys((prev) => ({
-      ...prev,
-      [id]: !prev[id],
-    }));
+  const apiBaseUrl = useMemo(() => {
+    return process.env.NEXT_PUBLIC_API_URL || "backend nao configurado no frontend";
+  }, []);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const data = await fetchApiSettings();
+        const merged = { ...emptyState, ...data } as Record<APIServiceId, APIServiceSetting>;
+        setSettings(merged);
+        setDrafts({
+          tmdb: merged.tmdb.api_key || "",
+          youtube: merged.youtube.api_key || "",
+          pexels: merged.pexels.api_key || "",
+          openai: merged.openai.api_key || "",
+          elevenlabs: merged.elevenlabs.api_key || "",
+        });
+      } catch (error) {
+        setMessages({
+          page: { ok: false, text: "Nao foi possivel carregar as configuracoes da conta." },
+        });
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    load();
+  }, []);
+
+  const toggleKeyVisibility = (id: APIServiceId) => {
+    setVisibleKeys((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const updateDraft = (id: APIServiceId, value: string) => {
+    setDrafts((prev) => ({ ...prev, [id]: value }));
+  };
+
+  const handleSave = async (id: APIServiceId) => {
+    setSavingId(id);
+    try {
+      const saved = await saveApiSetting(id, drafts[id]);
+      setSettings((prev) => ({ ...prev, [id]: saved }));
+      setMessages((prev) => ({
+        ...prev,
+        [id]: { ok: true, text: "Chave salva com sucesso." },
+      }));
+    } catch (error) {
+      setMessages((prev) => ({
+        ...prev,
+        [id]: { ok: false, text: "Falha ao salvar a chave." },
+      }));
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const handleTest = async (id: APIServiceId) => {
+    setTestingId(id);
+    try {
+      const result = await testApiSetting(id);
+      setMessages((prev) => ({
+        ...prev,
+        [id]: { ok: result.ok, text: result.message },
+      }));
+    } catch (error) {
+      setMessages((prev) => ({
+        ...prev,
+        [id]: { ok: false, text: "Falha ao testar a conexao." },
+      }));
+    } finally {
+      setTestingId(null);
+    }
   };
 
   return (
     <AppLayout>
-      <div className="space-y-6 max-w-4xl">
-        {/* Header */}
+      <div className="space-y-6 max-w-5xl">
         <div>
-          <h1 className="text-2xl font-bold text-text-primary">Configurações</h1>
+          <h1 className="text-2xl font-bold text-text-primary">Configuracoes</h1>
           <p className="text-text-secondary text-sm mt-1">
-            Gerencie suas chaves de API e integrações
+            Conecte as APIs que alimentam mineracao, assets, voz e exportacao.
           </p>
         </div>
 
-        {/* API Services */}
+        {messages.page && (
+          <Card className="border-status-danger/30">
+            <CardContent className="pt-6 text-sm text-status-danger">
+              {messages.page.text}
+            </CardContent>
+          </Card>
+        )}
+
         <div className="space-y-4">
-          {apiServices.map((service) => (
-            <Card key={service.id}>
-              <CardContent className="pt-6">
-                <div className="space-y-4">
-                  {/* Header */}
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <h3 className="text-base font-bold text-text-primary mb-1">
-                        {service.name}
-                      </h3>
-                      <p className="text-sm text-text-secondary">
-                        {service.description}
-                      </p>
+          {serviceCatalog.map((service) => {
+            const setting = settings[service.id];
+            const message = messages[service.id];
+
+            return (
+              <Card key={service.id}>
+                <CardContent className="pt-6 space-y-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h3 className="text-base font-bold text-text-primary">{service.name}</h3>
+                      <p className="text-sm text-text-secondary mt-1">{service.description}</p>
                     </div>
-                    <Badge
-                      variant={statusBadgeVariant[service.status] || "default"}
-                    >
-                      {statusLabels[service.status]}
-                    </Badge>
+                    <Badge variant={statusVariant(setting)}>{statusLabel(setting)}</Badge>
                   </div>
 
                   <Separator />
 
-                  {/* API Key Input */}
-                  {editingKey === service.id ? (
-                    <div className="space-y-3">
-                      <div>
-                        <label className="block text-sm font-medium text-text-secondary mb-2">
-                          Chave de API
-                        </label>
-                        <Input
-                          type="password"
-                          placeholder="Cole sua chave de API aqui"
-                          defaultValue={service.apiKey}
-                        />
-                      </div>
-                      <div className="flex gap-2">
-                        <Button
-                          variant="accent"
-                          size="sm"
-                          onClick={() => setEditingKey(null)}
-                        >
-                          Salvar
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setEditingKey(null)}
-                        >
-                          Cancelar
-                        </Button>
-                      </div>
+                  <div className="space-y-3">
+                    <label className="block text-sm font-medium text-text-secondary">
+                      Chave da API
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type={visibleKeys[service.id] ? "text" : "password"}
+                        value={drafts[service.id]}
+                        onChange={(event) => updateDraft(service.id, event.target.value)}
+                        placeholder={`Cole a chave de ${service.name}`}
+                      />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => toggleKeyVisibility(service.id)}
+                        title={visibleKeys[service.id] ? "Ocultar chave" : "Mostrar chave"}
+                      >
+                        {visibleKeys[service.id] ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </Button>
                     </div>
-                  ) : (
-                    <div className="flex items-center justify-between bg-bg-surface-2 rounded-xs p-3">
-                      <div className="flex items-center space-x-2 flex-1">
-                        <code className="text-sm text-text-secondary font-mono">
-                          {visibleKeys[service.id]
-                            ? service.apiKey.replace(/•/g, "*")
-                            : service.apiKey}
-                        </code>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <button
-                          onClick={() => toggleKeyVisibility(service.id)}
-                          className="p-1 hover:bg-bg-surface rounded-xs transition-colors"
-                          title={
-                            visibleKeys[service.id]
-                              ? "Ocultar chave"
-                              : "Mostrar chave"
-                          }
-                        >
-                          {visibleKeys[service.id] ? (
-                            <EyeOff size={16} className="text-text-muted" />
-                          ) : (
-                            <Eye size={16} className="text-text-muted" />
-                          )}
-                        </button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setEditingKey(service.id)}
-                        >
-                          Editar
-                        </Button>
-                      </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="accent"
+                        size="sm"
+                        onClick={() => handleSave(service.id)}
+                        disabled={savingId === service.id || !drafts[service.id].trim()}
+                      >
+                        {savingId === service.id ? <Loader2 size={14} className="animate-spin mr-2" /> : <Save size={14} className="mr-2" />}
+                        Salvar
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleTest(service.id)}
+                        disabled={testingId === service.id || !drafts[service.id].trim()}
+                      >
+                        {testingId === service.id ? <Loader2 size={14} className="animate-spin mr-2" /> : <Zap size={14} className="mr-2" />}
+                        Testar conexao
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="text-xs text-text-muted space-y-1">
+                    <p>Origem atual: {setting.source}</p>
+                    {setting.updated_at && <p>Ultima atualizacao: {new Date(setting.updated_at).toLocaleString("pt-BR")}</p>}
+                  </div>
+
+                  {message && (
+                    <div className={`flex items-start gap-2 text-sm ${message.ok ? "text-status-success" : "text-status-danger"}`}>
+                      {message.ok ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
+                      <span>{message.text}</span>
                     </div>
                   )}
-
-                  {/* Test Connection */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      {service.testStatus === "success" ? (
-                        <>
-                          <CheckCircle size={16} className="text-status-success" />
-                          <span className="text-sm text-status-success">
-                            Conexão Testada com Sucesso
-                          </span>
-                        </>
-                      ) : service.testStatus === "pending" ? (
-                        <>
-                          <AlertCircle size={16} className="text-status-warning" />
-                          <span className="text-sm text-status-warning">
-                            Aguardando Configuração
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <AlertCircle size={16} className="text-status-danger" />
-                          <span className="text-sm text-status-danger">
-                            Falha na Conexão
-                          </span>
-                        </>
-                      )}
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="space-x-2"
-                      disabled={service.status === "pending"}
-                    >
-                      <Zap size={14} />
-                      <span>Testar Conexão</span>
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
 
-        {/* Environment Variables */}
         <Card>
           <CardHeader>
-            <CardTitle>Variáveis de Ambiente</CardTitle>
+            <CardTitle>Ambiente</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-text-secondary mb-2">
-                URL da API
+                URL da API usada pelo frontend
               </label>
-              <Input
-                type="text"
-                defaultValue="http://localhost:8000"
-                disabled
-                className="bg-bg-surface-2"
-              />
+              <Input type="text" value={apiBaseUrl} disabled className="bg-bg-surface-2" />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-2">
-                Ambiente
-              </label>
-              <div className="flex items-center space-x-2">
-                <span className="text-sm text-text-primary font-mono">
-                  development
-                </span>
-                <Badge variant="warning">Desenvolvimento</Badge>
-              </div>
-            </div>
+            <p className="text-sm text-text-secondary">
+              Para o app funcionar em producao, o frontend precisa apontar para um backend publicado e autenticado.
+            </p>
           </CardContent>
         </Card>
 
-        {/* Preferences */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Preferências</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <label className="flex items-center space-x-3 cursor-pointer">
-              <input
-                type="checkbox"
-                defaultChecked
-                className="w-4 h-4 rounded-xs border border-border bg-bg-surface cursor-pointer accent-accent"
-              />
-              <span className="text-sm text-text-primary">
-                Notificações de Progresso
-              </span>
-            </label>
-            <label className="flex items-center space-x-3 cursor-pointer">
-              <input
-                type="checkbox"
-                defaultChecked
-                className="w-4 h-4 rounded-xs border border-border bg-bg-surface cursor-pointer accent-accent"
-              />
-              <span className="text-sm text-text-primary">
-                Salvar Automaticamente
-              </span>
-            </label>
-            <label className="flex items-center space-x-3 cursor-pointer">
-              <input
-                type="checkbox"
-                className="w-4 h-4 rounded-xs border border-border bg-bg-surface cursor-pointer accent-accent"
-              />
-              <span className="text-sm text-text-primary">
-                Enviar Relatórios de Erro
-              </span>
-            </label>
-          </CardContent>
-        </Card>
-
-        {/* Danger Zone */}
         <Card className="border-status-danger/30">
           <CardHeader>
-            <CardTitle className="text-status-danger">Zona de Perigo</CardTitle>
+            <CardTitle className="text-status-danger">Zona de perigo</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-text-secondary">
-              Estas ações são permanentes e não podem ser desfeitas.
+              Ainda falta separar backend de producao, endurecer segredos e conectar servicos reais de voz e render.
             </p>
-            <Button variant="danger" className="w-full justify-center">
-              Limpar Cache Local
-            </Button>
-            <Button variant="danger" className="w-full justify-center">
-              Redefinir Todas as Configurações
-            </Button>
           </CardContent>
         </Card>
+
+        {loading && (
+          <div className="text-sm text-text-secondary flex items-center gap-2">
+            <Loader2 size={16} className="animate-spin" />
+            Carregando configuracoes...
+          </div>
+        )}
       </div>
     </AppLayout>
   );
 }
+
