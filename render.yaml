@@ -1,0 +1,41 @@
+services:
+  - type: web
+    name: blacktube-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: blacktube-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "30"
+      - key: DEBUG
+        value: "false"
+      - key: APP_NAME
+        value: BlackTube
+      - key: APP_VERSION
+        value: "0.1.0"
+      - key: PEXELS_API_KEY
+        sync: false
+      - key: TMDB_API_KEY
+        sync: false
+      - key: YOUTUBE_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+
+databases:
+  - name: blacktube-db
+    databaseName: blacktube
+    user: blacktube
+
