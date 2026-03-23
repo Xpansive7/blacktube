@@ -32,6 +32,18 @@ class MiningResultResponse(BaseModel):
     yt_video_count: Optional[int] = None
     yt_avg_views: Optional[float] = None
     yt_avg_comments: Optional[float] = None
+    youtube_video_id: Optional[str] = None
+    youtube_url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    channel_title: Optional[str] = None
+    channel_id: Optional[str] = None
+    channel_subscribers: Optional[int] = None
+    published_at: Optional[datetime] = None
+    duration_seconds: Optional[int] = None
+    like_count: Optional[int] = None
+    comment_count: Optional[int] = None
+    views_per_day: Optional[float] = None
+    engagement_rate: Optional[float] = None
     opportunity_score: float
     created_at: datetime
 

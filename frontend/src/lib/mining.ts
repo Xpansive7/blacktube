@@ -24,6 +24,18 @@ export interface MiningResult {
   yt_video_count?: number | null;
   yt_avg_views?: number | null;
   yt_avg_comments?: number | null;
+  youtube_video_id?: string | null;
+  youtube_url?: string | null;
+  thumbnail_url?: string | null;
+  channel_title?: string | null;
+  channel_id?: string | null;
+  channel_subscribers?: number | null;
+  published_at?: string | null;
+  duration_seconds?: number | null;
+  like_count?: number | null;
+  comment_count?: number | null;
+  views_per_day?: number | null;
+  engagement_rate?: number | null;
   opportunity_score: number;
   created_at: string;
 }

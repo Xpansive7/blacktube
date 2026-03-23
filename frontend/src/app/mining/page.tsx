@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { Search, Zap, Plus } from "lucide-react";
+import Image from "next/image";
+import { ExternalLink, Search, Zap, Plus, CalendarDays, Eye, MessageCircle, ThumbsUp, Clock3 } from "lucide-react";
 import Link from "next/link";
 
 import { AppLayout } from "@/components/layout/app-layout";
@@ -39,6 +40,42 @@ function formatCompactNumber(value?: number | null) {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
   return String(Math.round(value));
+}
+
+function formatDuration(seconds?: number | null) {
+  if (!seconds) return "--";
+  const totalSeconds = Math.round(seconds);
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainingSeconds = totalSeconds % 60;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${remainingMinutes.toString().padStart(2, "0")}m`;
+  }
+  return `${minutes}m ${remainingSeconds.toString().padStart(2, "0")}s`;
+}
+
+function formatPublishedAt(value?: string | null) {
+  if (!value) return "Data indisponivel";
+  try {
+    return new Date(value).toLocaleDateString("pt-BR");
+  } catch {
+    return "Data indisponivel";
+  }
+}
+
+function getMonetizationLabel(result: MiningResult) {
+  const viewsPerDay = result.views_per_day || 0;
+  const engagement = result.engagement_rate || 0;
+
+  if (viewsPerDay >= 10_000 && engagement >= 4) {
+    return { label: "Monetizacao alta", variant: "success" as const };
+  }
+  if (viewsPerDay >= 2_500 || engagement >= 2) {
+    return { label: "Monetizacao media", variant: "warning" as const };
+  }
+  return { label: "Monetizacao baixa", variant: "default" as const };
 }
 
 function buildProjectQuery(result: MiningResult) {
@@ -197,15 +234,61 @@ export default function MiningPage() {
             <Card key={opp.id} interactive>
               <CardContent className="pt-6">
                 <div className="space-y-4">
+                  {opp.thumbnail_url ? (
+                    <div className="relative h-48 overflow-hidden rounded-xs border border-border bg-bg-surface-2">
+                      <Image
+                        src={opp.thumbnail_url}
+                        alt={opp.title}
+                        fill
+                        className="object-cover"
+                        unoptimized
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex h-48 items-center justify-center rounded-xs border border-border bg-bg-surface-2 text-sm text-text-muted">
+                      Thumbnail indisponivel
+                    </div>
+                  )}
+
                   <div>
                     <h3 className="mb-2 line-clamp-2 text-base font-bold text-text-primary">
                       {opp.title}
                     </h3>
-                    <div className="flex items-center space-x-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="accent" size="sm">
-                        {opp.content_type || "unknown"}
+                        {opp.content_type || "youtube"}
                       </Badge>
                       {opp.year && <Badge size="sm">{opp.year}</Badge>}
+                      <Badge variant={getMonetizationLabel(opp).variant} size="sm">
+                        {getMonetizationLabel(opp).label}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xs bg-bg-surface-2 p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs text-text-muted">Canal</p>
+                        <p className="text-sm font-semibold text-text-primary">
+                          {opp.channel_title || "Canal indisponivel"}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs text-text-muted">Inscritos</p>
+                        <p className="text-sm font-semibold text-text-primary">
+                          {formatCompactNumber(opp.channel_subscribers)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3 text-xs text-text-secondary">
+                      <span className="inline-flex items-center gap-1">
+                        <CalendarDays size={12} />
+                        {formatPublishedAt(opp.published_at)}
+                      </span>
+                      <span className="inline-flex items-center gap-1">
+                        <Clock3 size={12} />
+                        {formatDuration(opp.duration_seconds)}
+                      </span>
                     </div>
                   </div>
 
@@ -256,18 +339,64 @@ export default function MiningPage() {
                         {formatCompactNumber(opp.yt_avg_views)}
                       </span>
                     </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="inline-flex items-center gap-1 text-text-secondary">
+                        <Eye size={12} />
+                        Views/dia
+                      </span>
+                      <span className="font-mono text-text-primary">
+                        {formatCompactNumber(opp.views_per_day)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="inline-flex items-center gap-1 text-text-secondary">
+                        <ThumbsUp size={12} />
+                        Likes
+                      </span>
+                      <span className="font-mono text-text-primary">
+                        {formatCompactNumber(opp.like_count)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="inline-flex items-center gap-1 text-text-secondary">
+                        <MessageCircle size={12} />
+                        Comentarios
+                      </span>
+                      <span className="font-mono text-text-primary">
+                        {formatCompactNumber(opp.comment_count)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-text-secondary">Engajamento</span>
+                      <span className="font-mono text-text-primary">
+                        {(opp.engagement_rate || 0).toFixed(2)}%
+                      </span>
+                    </div>
                   </div>
 
-                  <Link href={buildProjectQuery(opp)}>
-                    <Button
-                      variant="accent"
-                      size="sm"
-                      className="w-full justify-center space-x-2"
-                    >
-                      <Plus size={16} />
-                      <span>Criar Projeto</span>
-                    </Button>
-                  </Link>
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                    <Link href={buildProjectQuery(opp)}>
+                      <Button
+                        variant="accent"
+                        size="sm"
+                        className="w-full justify-center space-x-2"
+                      >
+                        <Plus size={16} />
+                        <span>Criar Projeto</span>
+                      </Button>
+                    </Link>
+                    <a href={opp.youtube_url || "#"} target="_blank" rel="noreferrer">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full justify-center space-x-2"
+                        disabled={!opp.youtube_url}
+                      >
+                        <ExternalLink size={16} />
+                        <span>Ver no YouTube</span>
+                      </Button>
+                    </a>
+                  </div>
                 </div>
               </CardContent>
             </Card>

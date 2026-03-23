@@ -29,6 +29,18 @@ class MiningResultData:
     yt_video_count: Optional[int] = None
     yt_avg_views: Optional[float] = None
     yt_avg_comments: Optional[float] = None
+    youtube_video_id: Optional[str] = None
+    youtube_url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    channel_title: Optional[str] = None
+    channel_id: Optional[str] = None
+    channel_subscribers: Optional[int] = None
+    published_at: Optional[str] = None
+    duration_seconds: Optional[int] = None
+    like_count: Optional[int] = None
+    comment_count: Optional[int] = None
+    views_per_day: Optional[float] = None
+    engagement_rate: Optional[float] = None
     opportunity_score: float = 0.0
     content_type: str = "youtube"
 
@@ -85,7 +97,15 @@ class MiningService:
                 for item in items
                 if item.get("id", {}).get("videoId")
             ]
-            stats_map = self._fetch_video_statistics(client=client, api_key=api_key, video_ids=video_ids)
+            video_map = self._fetch_video_details(client=client, api_key=api_key, video_ids=video_ids)
+            channel_ids = list(
+                {
+                    item.get("snippet", {}).get("channelId")
+                    for item in items
+                    if item.get("snippet", {}).get("channelId")
+                }
+            )
+            channel_map = self._fetch_channel_details(client=client, api_key=api_key, channel_ids=channel_ids)
 
         results: List[MiningResultData] = []
         for item in items:
@@ -94,13 +114,27 @@ class MiningService:
             if not video_id or not snippet:
                 continue
 
-            stats = stats_map.get(video_id, {})
+            video_data = video_map.get(video_id, {})
+            stats = video_data.get("statistics", {})
+            content_details = video_data.get("contentDetails", {})
             title = snippet.get("title", "Sem titulo")
             description = snippet.get("description") or "Sem descricao fornecida pelo YouTube."
             published_at = snippet.get("publishedAt")
             year = self._extract_year(published_at)
             views = self._safe_int(stats.get("viewCount"))
             comments = self._safe_int(stats.get("commentCount"))
+            likes = self._safe_int(stats.get("likeCount"))
+            channel_id = snippet.get("channelId")
+            channel_data = channel_map.get(channel_id or "", {})
+            duration_seconds = self._parse_iso8601_duration_to_seconds(content_details.get("duration"))
+            views_per_day = self._calculate_views_per_day(views, published_at)
+            engagement_rate = self._calculate_engagement_rate(views, likes, comments)
+            thumbnails = snippet.get("thumbnails", {})
+            thumbnail_url = (
+                thumbnails.get("high", {}).get("url")
+                or thumbnails.get("medium", {}).get("url")
+                or thumbnails.get("default", {}).get("url")
+            )
 
             result = MiningResultData(
                 title=title,
@@ -111,6 +145,18 @@ class MiningService:
                 yt_video_count=total_results,
                 yt_avg_views=float(views),
                 yt_avg_comments=float(comments),
+                youtube_video_id=video_id,
+                youtube_url=f"https://www.youtube.com/watch?v={video_id}",
+                thumbnail_url=thumbnail_url,
+                channel_title=snippet.get("channelTitle"),
+                channel_id=channel_id,
+                channel_subscribers=self._safe_int(channel_data.get("statistics", {}).get("subscriberCount")),
+                published_at=published_at,
+                duration_seconds=duration_seconds,
+                like_count=likes,
+                comment_count=comments,
+                views_per_day=views_per_day,
+                engagement_rate=engagement_rate,
                 content_type="youtube",
             )
             result.opportunity_score = self.calculate_opportunity_score(
@@ -205,7 +251,7 @@ class MiningService:
         response.raise_for_status()
         return response.json()
 
-    def _fetch_video_statistics(
+    def _fetch_video_details(
         self,
         client: httpx.Client,
         api_key: str,
@@ -226,8 +272,28 @@ class MiningService:
 
         stats_map: Dict[str, Dict[str, Any]] = {}
         for item in payload.get("items", []):
-            stats_map[item["id"]] = item.get("statistics", {})
+            stats_map[item["id"]] = item
         return stats_map
+
+    def _fetch_channel_details(
+        self,
+        client: httpx.Client,
+        api_key: str,
+        channel_ids: List[str],
+    ) -> Dict[str, Dict[str, Any]]:
+        if not channel_ids:
+            return {}
+
+        params = {
+            "key": api_key,
+            "id": ",".join(channel_ids),
+            "part": "snippet,statistics",
+            "maxResults": len(channel_ids),
+        }
+        response = client.get(f"{self.YOUTUBE_API_BASE}/channels", params=params)
+        response.raise_for_status()
+        payload = response.json()
+        return {item["id"]: item for item in payload.get("items", [])}
 
     @staticmethod
     def _extract_year(published_at: Optional[str]) -> int:
@@ -244,3 +310,41 @@ class MiningService:
             return int(value or 0)
         except (TypeError, ValueError):
             return 0
+
+    @staticmethod
+    def _parse_iso8601_duration_to_seconds(duration: Optional[str]) -> int:
+        if not duration:
+            return 0
+
+        hours = minutes = seconds = 0
+        current = ""
+        time_part = duration.replace("PT", "")
+        for char in time_part:
+            if char.isdigit():
+                current += char
+                continue
+            if char == "H":
+                hours = int(current or 0)
+            elif char == "M":
+                minutes = int(current or 0)
+            elif char == "S":
+                seconds = int(current or 0)
+            current = ""
+        return hours * 3600 + minutes * 60 + seconds
+
+    @staticmethod
+    def _calculate_views_per_day(views: int, published_at: Optional[str]) -> float:
+        if not published_at:
+            return float(views)
+        try:
+            published = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+            age_days = max((datetime.now(timezone.utc) - published).days, 1)
+            return round(views / age_days, 2)
+        except ValueError:
+            return float(views)
+
+    @staticmethod
+    def _calculate_engagement_rate(views: int, likes: int, comments: int) -> float:
+        if views <= 0:
+            return 0.0
+        return round(((likes + comments) / views) * 100, 2)
