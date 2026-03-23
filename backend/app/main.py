@@ -23,6 +23,12 @@ from app.routers import assets, auth, export, mining, presets, projects, scripts
 settings = get_settings()
 
 
+def _parse_cors_origins(raw_value: str) -> list[str]:
+    if not raw_value.strip():
+        return ["*"]
+    return [origin.strip() for origin in raw_value.split(",") if origin.strip()]
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown logic."""
@@ -38,6 +44,11 @@ async def lifespan(app: FastAPI):
     ExportBase.metadata.create_all(bind=engine)
     APISettingsBase.metadata.create_all(bind=engine)
 
+    if settings.seed_demo_data:
+        from app.seed import seed_database
+
+        seed_database()
+
     print("[OK] Banco de dados inicializado")
     yield
     print("[INFO] BlackTube Backend desligando...")
@@ -50,10 +61,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+cors_origins = _parse_cors_origins(settings.cors_allow_origins)
+allow_credentials = cors_origins != ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -1,9 +1,10 @@
-from pydantic_settings import BaseSettings
 from functools import lru_cache
+
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    """Configurações da aplicação BlackTube"""
+    """Application settings for BlackTube."""
 
     # Database
     database_url: str = "sqlite:///./blacktube.db"
@@ -24,6 +25,8 @@ class Settings(BaseSettings):
     debug: bool = True
     app_name: str = "BlackTube"
     app_version: str = "0.1.0"
+    cors_allow_origins: str = "*"
+    seed_demo_data: bool = False
 
     class Config:
         env_file = ".env"
@@ -32,5 +35,6 @@ class Settings(BaseSettings):
 
 @lru_cache()
 def get_settings() -> Settings:
-    """Retorna instância única de Settings (singleton)"""
+    """Return a cached settings instance."""
     return Settings()
+
