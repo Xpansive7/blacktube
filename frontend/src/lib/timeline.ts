@@ -14,6 +14,7 @@ export interface TimelineAsset {
   source: string;
   duration: number | null;
   url?: string | null;
+  metadata_json?: Record<string, unknown> | null;
 }
 
 export interface TimelineChapter {

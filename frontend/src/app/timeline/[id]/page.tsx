@@ -6,8 +6,10 @@ import { useParams } from "next/navigation";
 import {
   AlertTriangle,
   Clock,
+  Film,
   Image as ImageIcon,
   Mic2,
+  Save,
   RefreshCcw,
   Sparkles,
 } from "lucide-react";
@@ -16,6 +18,8 @@ import { AppLayout } from "@/components/layout/app-layout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { listProjectAssets, updateProjectAsset, type ProjectAsset } from "@/lib/assets";
 import { fetchProject } from "@/lib/projects";
 import { generateScript } from "@/lib/scripts";
 import {
@@ -26,6 +30,14 @@ import {
   type TimelineSummary,
   type TimelineValidation,
 } from "@/lib/timeline";
+
+type AssetDraft = {
+  chapterId: string;
+  duration: string;
+  trimStart: string;
+  trimEnd: string;
+  transition: string;
+};
 
 function formatDuration(seconds: number) {
   if (!seconds) return "--";
@@ -42,10 +54,43 @@ export default function TimelinePage() {
   const [timeline, setTimeline] = useState<TimelineData | null>(null);
   const [summary, setSummary] = useState<TimelineSummary | null>(null);
   const [validation, setValidation] = useState<TimelineValidation | null>(null);
+  const [projectAssets, setProjectAssets] = useState<ProjectAsset[]>([]);
+  const [assetDrafts, setAssetDrafts] = useState<Record<string, AssetDraft>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [generatingScript, setGeneratingScript] = useState(false);
+  const [savingAssetId, setSavingAssetId] = useState<string | null>(null);
+
+  const buildDraft = useCallback((asset: {
+    chapter_id?: string | null;
+    duration_seconds?: number | null;
+    duration?: number | null;
+    metadata_json?: Record<string, unknown> | null;
+  }): AssetDraft => {
+    const metadata = asset.metadata_json || {};
+    const trimStart =
+      typeof metadata.trim_start === "number" ? metadata.trim_start : 0;
+    const trimEnd =
+      typeof metadata.trim_end === "number"
+        ? metadata.trim_end
+        : asset.duration_seconds ?? asset.duration ?? "";
+    const transition =
+      typeof metadata.transition === "string" ? metadata.transition : "cut";
+
+    return {
+      chapterId: asset.chapter_id || "",
+      duration:
+        asset.duration_seconds != null
+          ? String(asset.duration_seconds)
+          : asset.duration != null
+            ? String(asset.duration)
+            : "",
+      trimStart: String(trimStart),
+      trimEnd: trimEnd == null || trimEnd === "" ? "" : String(trimEnd),
+      transition,
+    };
+  }, []);
 
   const loadTimeline = useCallback(async () => {
     try {
@@ -56,15 +101,24 @@ export default function TimelinePage() {
       const project = await fetchProject(projectId);
       setProjectTitle(project.title);
 
-      const [summaryData, validationData, timelineData] = await Promise.allSettled([
+      const [summaryData, validationData, timelineData, assetData] = await Promise.allSettled([
         fetchTimelineSummary(projectId),
         validateTimeline(projectId),
         fetchTimeline(projectId),
+        listProjectAssets(projectId),
       ]);
 
       if (summaryData.status === "fulfilled") setSummary(summaryData.value);
       if (validationData.status === "fulfilled") setValidation(validationData.value);
       if (timelineData.status === "fulfilled") setTimeline(timelineData.value);
+      if (assetData.status === "fulfilled") {
+        setProjectAssets(assetData.value);
+        const nextDrafts: Record<string, AssetDraft> = {};
+        assetData.value.forEach((asset) => {
+          nextDrafts[asset.id] = buildDraft(asset);
+        });
+        setAssetDrafts(nextDrafts);
+      }
     } catch (err: any) {
       setError(
         err?.response?.data?.detail ||
@@ -74,7 +128,7 @@ export default function TimelinePage() {
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [buildDraft, projectId]);
 
   useEffect(() => {
     loadTimeline();
@@ -99,7 +153,65 @@ export default function TimelinePage() {
     }
   }
 
+  function updateDraft(assetId: string, field: keyof AssetDraft, value: string) {
+    setAssetDrafts((current) => ({
+      ...current,
+      [assetId]: {
+        ...(current[assetId] || {
+          chapterId: "",
+          duration: "",
+          trimStart: "0",
+          trimEnd: "",
+          transition: "cut",
+        }),
+        [field]: value,
+      },
+    }));
+  }
+
+  async function handleSaveAsset(asset: ProjectAsset) {
+    const draft = assetDrafts[asset.id];
+    if (!draft) return;
+
+    try {
+      setSavingAssetId(asset.id);
+      setError("");
+      setMessage("");
+
+      const currentMetadata = asset.metadata_json || {};
+      const trimStart = draft.trimStart === "" ? 0 : Number(draft.trimStart);
+      const trimEnd =
+        draft.trimEnd === ""
+          ? null
+          : Number(draft.trimEnd);
+      const duration = draft.duration === "" ? null : Number(draft.duration);
+
+      await updateProjectAsset(asset.id, {
+        chapter_id: draft.chapterId || null,
+        duration_seconds: duration,
+        metadata_json: {
+          ...currentMetadata,
+          trim_start: Number.isFinite(trimStart) ? trimStart : 0,
+          trim_end: trimEnd != null && Number.isFinite(trimEnd) ? trimEnd : null,
+          transition: draft.transition || "cut",
+        },
+      });
+
+      setMessage("Asset atualizado na timeline.");
+      await loadTimeline();
+    } catch (err: any) {
+      setError(
+        err?.response?.data?.detail ||
+          err?.message ||
+          "Nao foi possivel atualizar o asset."
+      );
+    } finally {
+      setSavingAssetId(null);
+    }
+  }
+
   const hasChapters = (summary?.chapter_count || 0) > 0;
+  const unassignedAssets = projectAssets.filter((asset) => !asset.chapter_id);
 
   return (
     <AppLayout>
@@ -247,6 +359,87 @@ export default function TimelinePage() {
               </Card>
             )}
 
+            {unassignedAssets.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Assets ainda fora da timeline</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="text-sm text-text-secondary">
+                    Esses ativos ja estao na biblioteca do projeto, mas ainda nao foram presos a um capitulo.
+                  </p>
+                  <div className="space-y-3">
+                    {unassignedAssets.map((asset) => {
+                      const draft = assetDrafts[asset.id] || buildDraft(asset);
+                      const preview =
+                        typeof asset.metadata_json?.preview === "string"
+                          ? asset.metadata_json.preview
+                          : asset.url || null;
+
+                      return (
+                        <div
+                          key={asset.id}
+                          className="rounded-xs border border-border bg-bg-surface-2 p-4"
+                        >
+                          <div className="grid gap-4 lg:grid-cols-[120px_minmax(0,1fr)]">
+                            <div className="aspect-video overflow-hidden rounded-xs border border-border bg-bg-surface">
+                              {preview ? (
+                                <img src={preview} alt="Asset preview" className="h-full w-full object-cover" />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center text-text-muted">
+                                  {asset.asset_type === "video" ? <Film size={18} /> : <ImageIcon size={18} />}
+                                </div>
+                              )}
+                            </div>
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between gap-2">
+                                <div>
+                                  <p className="font-semibold text-text-primary">
+                                    {asset.asset_type === "video" ? "Video" : "Imagem"} · {asset.source}
+                                  </p>
+                                  <p className="text-xs text-text-muted">
+                                    Adicione a um capitulo para aparecer na timeline.
+                                  </p>
+                                </div>
+                                <Button
+                                  variant="accent"
+                                  size="sm"
+                                  onClick={() => handleSaveAsset(asset)}
+                                  disabled={savingAssetId === asset.id}
+                                >
+                                  <Save size={14} className="mr-2" />
+                                  {savingAssetId === asset.id ? "Salvando..." : "Salvar"}
+                                </Button>
+                              </div>
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <select
+                                  value={draft.chapterId}
+                                  onChange={(event) => updateDraft(asset.id, "chapterId", event.target.value)}
+                                  className="rounded-xs border border-border bg-bg-surface px-3 py-2 text-sm text-text-primary outline-none"
+                                >
+                                  <option value="">Escolha um capitulo</option>
+                                  {timeline?.chapters.map((chapter) => (
+                                    <option key={chapter.id} value={chapter.id}>
+                                      Capitulo {chapter.number}: {chapter.title}
+                                    </option>
+                                  ))}
+                                </select>
+                                <Input
+                                  value={draft.duration}
+                                  onChange={(event) => updateDraft(asset.id, "duration", event.target.value)}
+                                  placeholder="Duracao em segundos"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             <div className="space-y-3">
               {timeline?.chapters.map((chapter) => (
                 <Card key={chapter.id}>
@@ -308,6 +501,99 @@ export default function TimelinePage() {
                       </div>
                     </div>
                   </CardContent>
+                  {chapter.assets.length > 0 && (
+                    <CardContent className="border-t border-border pt-0">
+                      <div className="grid gap-3 pt-5 md:grid-cols-2">
+                        {chapter.assets.map((asset) => {
+                          const linkedAsset = projectAssets.find((item) => item.id === asset.id);
+                          const draft =
+                            assetDrafts[asset.id] ||
+                            buildDraft({
+                              chapter_id: chapter.id,
+                              duration: asset.duration,
+                              metadata_json: asset.metadata_json,
+                            });
+                          const preview =
+                            typeof asset.metadata_json?.preview === "string"
+                              ? asset.metadata_json.preview
+                              : asset.url || null;
+
+                          return (
+                            <div
+                              key={asset.id}
+                              className="rounded-xs border border-border bg-bg-surface-2 p-4"
+                            >
+                              <div className="grid gap-4 xl:grid-cols-[140px_minmax(0,1fr)]">
+                                <div className="aspect-video overflow-hidden rounded-xs border border-border bg-bg-surface">
+                                  {preview ? (
+                                    <img src={preview} alt="Asset preview" className="h-full w-full object-cover" />
+                                  ) : (
+                                    <div className="flex h-full w-full items-center justify-center text-text-muted">
+                                      {asset.type === "video" ? <Film size={18} /> : <ImageIcon size={18} />}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="space-y-3">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div>
+                                      <p className="font-semibold text-text-primary">
+                                        {asset.type === "video" ? "Video" : "Imagem"} · {asset.source}
+                                      </p>
+                                      <p className="text-xs text-text-muted">
+                                        Corte, duracao e transicao desse bloco.
+                                      </p>
+                                    </div>
+                                    {linkedAsset && (
+                                      <Button
+                                        variant="accent"
+                                        size="sm"
+                                        onClick={() => handleSaveAsset(linkedAsset)}
+                                        disabled={savingAssetId === asset.id}
+                                      >
+                                        <Save size={14} className="mr-2" />
+                                        {savingAssetId === asset.id ? "Salvando..." : "Salvar"}
+                                      </Button>
+                                    )}
+                                  </div>
+
+                                  <div className="grid gap-3 md:grid-cols-2">
+                                    <Input
+                                      value={draft.duration}
+                                      onChange={(event) => updateDraft(asset.id, "duration", event.target.value)}
+                                      placeholder="Duracao em segundos"
+                                    />
+                                    <select
+                                      value={draft.transition}
+                                      onChange={(event) => updateDraft(asset.id, "transition", event.target.value)}
+                                      className="rounded-xs border border-border bg-bg-surface px-3 py-2 text-sm text-text-primary outline-none"
+                                    >
+                                      <option value="cut">Cut seco</option>
+                                      <option value="fade">Fade</option>
+                                      <option value="zoom">Zoom</option>
+                                      <option value="slide">Slide</option>
+                                    </select>
+                                  </div>
+
+                                  <div className="grid gap-3 md:grid-cols-2">
+                                    <Input
+                                      value={draft.trimStart}
+                                      onChange={(event) => updateDraft(asset.id, "trimStart", event.target.value)}
+                                      placeholder="Trim start"
+                                    />
+                                    <Input
+                                      value={draft.trimEnd}
+                                      onChange={(event) => updateDraft(asset.id, "trimEnd", event.target.value)}
+                                      placeholder="Trim end"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </CardContent>
+                  )}
                 </Card>
               ))}
             </div>

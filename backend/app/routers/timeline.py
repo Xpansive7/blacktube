@@ -103,6 +103,7 @@ def get_project_timeline(
                     "source": a.source,
                     "duration": a.duration_seconds,
                     "url": a.url,
+                    "metadata_json": a.metadata_json,
                 }
                 for a in chapter_assets
             ],

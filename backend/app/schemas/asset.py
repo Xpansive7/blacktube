@@ -35,6 +35,7 @@ class AssetCreate(BaseModel):
 class AssetUpdate(BaseModel):
     """Schema para atualizar asset"""
 
+    chapter_id: Optional[UUID] = None
     file_path: Optional[str] = None
     url: Optional[str] = None
     prompt_used: Optional[str] = None

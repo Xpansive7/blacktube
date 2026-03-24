@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { ExternalLink, Loader2, Search, Video, Image as ImageIcon } from "lucide-react";
+import { Check, ExternalLink, Loader2, Plus, Search, Video, Image as ImageIcon } from "lucide-react";
 
 import { AppLayout } from "@/components/layout/app-layout";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { fetchProject, fetchProjects } from "@/lib/projects";
-import { searchPexelsAssets, ExternalAssetResult } from "@/lib/assets";
+import { createProjectAsset, searchPexelsAssets, ExternalAssetResult } from "@/lib/assets";
+import { fetchChapters, type Chapter } from "@/lib/scripts";
 import type { Project } from "@/lib/store";
 
 type ProjectContext = Project & {
@@ -94,11 +95,16 @@ export default function MediaPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [projectContext, setProjectContext] = useState<ProjectContext | null>(null);
+  const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [selectedChapterId, setSelectedChapterId] = useState("");
   const [query, setQuery] = useState("cinematic city");
   const [mediaType, setMediaType] = useState<"image" | "video">("image");
   const [results, setResults] = useState<ExternalAssetResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [savingAssetId, setSavingAssetId] = useState<string | number | null>(null);
+  const [savedAssetIds, setSavedAssetIds] = useState<string[]>([]);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
     async function loadProjects() {
@@ -122,16 +128,29 @@ export default function MediaPage() {
     async function loadProjectContext() {
       if (!selectedProjectId) {
         setProjectContext(null);
+        setChapters([]);
+        setSelectedChapterId("");
         return;
       }
 
       try {
-        const data = await fetchProject(selectedProjectId);
+        const [data, chapterData] = await Promise.all([
+          fetchProject(selectedProjectId),
+          fetchChapters(selectedProjectId),
+        ]);
         if (!active) return;
         setProjectContext(data as ProjectContext);
+        setChapters(chapterData);
+        setSelectedChapterId((currentValue) =>
+          currentValue && chapterData.some((chapter) => chapter.id === currentValue)
+            ? currentValue
+            : chapterData[0]?.id || ""
+        );
       } catch {
         if (!active) return;
         setProjectContext(null);
+        setChapters([]);
+        setSelectedChapterId("");
       }
     }
 
@@ -159,6 +178,7 @@ export default function MediaPage() {
 
     setLoading(true);
     setError("");
+    setMessage("");
 
     try {
       const data = await searchPexelsAssets(selectedProjectId, query.trim(), mediaType);
@@ -168,6 +188,52 @@ export default function MediaPage() {
       setError(err?.response?.data?.detail || "Falha ao buscar assets no Pexels.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAddToTimeline = async (item: ExternalAssetResult) => {
+    if (!selectedProjectId) {
+      setError("Escolha um projeto antes de adicionar ativos.");
+      return;
+    }
+
+    try {
+      setSavingAssetId(item.id);
+      setError("");
+      setMessage("");
+
+      const metadata = {
+        preview: item.preview,
+        width: item.width,
+        height: item.height,
+        author: item.author,
+        pexels_url: item.pexels_url,
+        external_id: item.id,
+        trim_start: 0,
+        trim_end: item.duration ?? null,
+        transition: "cut",
+        source_query: query,
+      };
+
+      const asset = await createProjectAsset(selectedProjectId, {
+        chapter_id: selectedChapterId || null,
+        asset_type: item.type,
+        source: "pexels",
+        url: item.url,
+        duration_seconds: item.type === "image" ? 5 : item.duration ?? 10,
+        metadata_json: metadata,
+      });
+
+      setSavedAssetIds((current) => Array.from(new Set([...current, asset.id, String(item.id)])));
+      setMessage(
+        selectedChapterId
+          ? "Asset adicionado ao capitulo e pronto para aparecer na timeline."
+          : "Asset salvo no projeto. Agora voce pode vincular na timeline."
+      );
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || "Nao foi possivel adicionar esse asset.");
+    } finally {
+      setSavingAssetId(null);
     }
   };
 
@@ -222,6 +288,27 @@ export default function MediaPage() {
             </select>
           </div>
 
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <select
+              value={selectedChapterId}
+              onChange={(event) => setSelectedChapterId(event.target.value)}
+              className="px-3 py-2 text-sm text-text-primary bg-bg-surface border border-border rounded-xs outline-none"
+              disabled={!selectedProjectId || chapters.length === 0}
+            >
+              <option value="">Salvar apenas na biblioteca do projeto</option>
+              {chapters.map((chapter) => (
+                <option key={chapter.id} value={chapter.id}>
+                  Capitulo {chapter.chapter_number}: {chapter.title}
+                </option>
+              ))}
+            </select>
+            <div className="flex items-center rounded-xs border border-border bg-bg-surface-2 px-3 py-2 text-xs text-text-secondary">
+              {selectedChapterId
+                ? "Novos assets entram diretamente nesse capitulo da timeline."
+                : "Sem capitulo selecionado: o asset entra na biblioteca do projeto."}
+            </div>
+          </div>
+
           <div className="flex gap-2">
             <Button variant="accent" onClick={handleSearch} disabled={loading || !selectedProjectId}>
               {loading ? <Loader2 size={16} className="animate-spin mr-2" /> : <Search size={16} className="mr-2" />}
@@ -249,6 +336,7 @@ export default function MediaPage() {
             </div>
           )}
 
+          {message && <p className="text-sm text-status-success">{message}</p>}
           {error && <p className="text-sm text-status-danger">{error}</p>}
         </div>
 
@@ -300,8 +388,32 @@ export default function MediaPage() {
                   </div>
 
                   <div className="flex gap-2">
+                    <Button
+                      variant={savedAssetIds.includes(String(item.id)) ? "accent" : "ghost"}
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => handleAddToTimeline(item)}
+                      disabled={savingAssetId === item.id}
+                    >
+                      {savingAssetId === item.id ? (
+                        <>
+                          <Loader2 size={14} className="mr-2 animate-spin" />
+                          Salvando...
+                        </>
+                      ) : savedAssetIds.includes(String(item.id)) ? (
+                        <>
+                          <Check size={14} className="mr-2" />
+                          Na timeline
+                        </>
+                      ) : (
+                        <>
+                          <Plus size={14} className="mr-2" />
+                          Enviar para timeline
+                        </>
+                      )}
+                    </Button>
                     {item.url && (
-                      <a href={item.url} target="_blank" rel="noreferrer" className="flex-1">
+                      <a href={item.url} target="_blank" rel="noreferrer">
                         <Button variant="ghost" size="sm" className="w-full">
                           Abrir asset
                         </Button>
