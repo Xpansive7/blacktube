@@ -82,6 +82,7 @@ class ProjectCreate(BaseModel):
         AudienceAwarenessLevelEnum.unaware
     )
     visual_preset_id: Optional[UUID] = None
+    sources: List[ProjectSourceCreate] = []
 
 
 class ProjectUpdate(BaseModel):

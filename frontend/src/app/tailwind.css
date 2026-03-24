@@ -1567,6 +1567,10 @@ video {
   text-transform: capitalize;
 }
 
+.tracking-wide {
+  letter-spacing: 0.025em;
+}
+
 .tracking-wider {
   letter-spacing: 0.05em;
 }
@@ -2006,6 +2010,10 @@ select {
 
   .md\:inline {
     display: inline;
+  }
+
+  .md\:grid-cols-1 {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
   }
 
   .md\:grid-cols-2 {

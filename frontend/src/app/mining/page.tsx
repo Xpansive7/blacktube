@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { ExternalLink, Search, Zap, Plus, CalendarDays, Eye, MessageCircle, ThumbsUp, Clock3 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 import { AppLayout } from "@/components/layout/app-layout";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,6 +14,8 @@ import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { fetchMiningResults, searchMining, type MiningResult } from "@/lib/mining";
+import { createProject } from "@/lib/projects";
+import { useProjectStore } from "@/lib/store";
 
 const genreOptions = [
   "Tecnologia",
@@ -89,12 +92,15 @@ function buildProjectQuery(result: MiningResult) {
 }
 
 export default function MiningPage() {
+  const router = useRouter();
+  const { addProject, setCurrentProject } = useProjectStore();
   const [searchTerm, setSearchTerm] = useState("power");
   const [genreFilter, setGenreFilter] = useState("");
   const [contentType, setContentType] = useState("");
   const [results, setResults] = useState<MiningResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [importingId, setImportingId] = useState<string | null>(null);
 
   async function loadRecentResults() {
     try {
@@ -159,6 +165,80 @@ export default function MiningPage() {
       return matchesSearch && matchesGenre && matchesType;
     });
   }, [results, searchTerm, genreFilter, contentType]);
+
+  async function handleImportIdea(result: MiningResult) {
+    try {
+      setImportingId(result.id);
+      setError("");
+
+      const projectType =
+        result.content_type === "series"
+          ? "series_analysis"
+          : result.duration_seconds && result.duration_seconds <= 90
+            ? "reaction"
+            : "documentary";
+
+      const narrativeMode =
+        (result.query || "").toLowerCase().includes("power") ||
+        (result.query || "").toLowerCase().includes("guerra")
+          ? "analise_poder"
+          : "investigativo";
+
+      const targetDuration =
+        result.duration_seconds && result.duration_seconds <= 90
+          ? 1
+          : result.duration_seconds && result.duration_seconds <= 240
+            ? 3
+            : 10;
+
+      const project = await createProject({
+        title: result.title,
+        project_type: projectType,
+        source_title: result.channel_title || result.query || "YouTube",
+        source_year: result.year || undefined,
+        synopsis: result.synopsis || undefined,
+        notes: `Projeto importado da mineracao. Video original: ${result.youtube_url || "nao informado"}`,
+        output_language: "pt-BR",
+        target_duration_minutes: targetDuration,
+        narrative_mode: narrativeMode,
+        audience_awareness_level: "solution_aware",
+        sources: [
+          {
+            source_type: "youtube",
+            external_id: result.youtube_video_id || result.tmdb_id || undefined,
+            title: result.title,
+            url: result.youtube_url || undefined,
+            metadata_json: {
+              thumbnail_url: result.thumbnail_url,
+              channel_title: result.channel_title,
+              channel_id: result.channel_id,
+              channel_subscribers: result.channel_subscribers,
+              published_at: result.published_at,
+              duration_seconds: result.duration_seconds,
+              like_count: result.like_count,
+              comment_count: result.comment_count,
+              views_per_day: result.views_per_day,
+              engagement_rate: result.engagement_rate,
+              opportunity_score: result.opportunity_score,
+              mining_query: result.query,
+            },
+          },
+        ],
+      });
+
+      addProject(project);
+      setCurrentProject(project);
+      router.push(`/projects/${project.id}`);
+    } catch (err: any) {
+      setError(
+        err?.response?.data?.detail ||
+          err?.message ||
+          "Nao foi possivel importar essa ideia para um projeto."
+      );
+    } finally {
+      setImportingId(null);
+    }
+  }
 
   return (
     <AppLayout>
@@ -382,9 +462,22 @@ export default function MiningPage() {
                         className="w-full justify-center space-x-2"
                       >
                         <Plus size={16} />
-                        <span>Criar Projeto</span>
+                        <span>Preencher Projeto</span>
                       </Button>
                     </Link>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full justify-center space-x-2"
+                      onClick={() => handleImportIdea(opp)}
+                      disabled={importingId === opp.id}
+                    >
+                      <Plus size={16} />
+                      <span>{importingId === opp.id ? "Importando..." : "Importar Ideia"}</span>
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-1">
                     <a href={opp.youtube_url || "#"} target="_blank" rel="noreferrer">
                       <Button
                         variant="ghost"

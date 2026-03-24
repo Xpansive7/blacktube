@@ -8,13 +8,92 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { fetchProjects } from "@/lib/projects";
+import { fetchProject, fetchProjects } from "@/lib/projects";
 import { searchPexelsAssets, ExternalAssetResult } from "@/lib/assets";
 import type { Project } from "@/lib/store";
+
+type ProjectContext = Project & {
+  synopsis?: string | null;
+  sourceTitle?: string | null;
+  sources?: Array<{
+    source_type?: string;
+    title?: string | null;
+    url?: string | null;
+    metadata_json?: Record<string, unknown> | null;
+  }>;
+};
+
+const STOP_WORDS = new Set([
+  "a",
+  "o",
+  "os",
+  "as",
+  "de",
+  "do",
+  "da",
+  "dos",
+  "das",
+  "e",
+  "em",
+  "para",
+  "por",
+  "na",
+  "no",
+  "nas",
+  "nos",
+  "the",
+  "of",
+  "and",
+  "to",
+  "um",
+  "uma",
+]);
+
+function extractKeywords(input: string) {
+  return input
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length > 2 && !STOP_WORDS.has(token));
+}
+
+function buildKeywordSuggestions(project: ProjectContext | null, mediaType: "image" | "video") {
+  if (!project) return [];
+
+  const sourceMetadata = project.sources?.[0]?.metadata_json || {};
+  const sourceTitle =
+    project.sourceTitle ||
+    project.sources?.[0]?.title ||
+    (typeof sourceMetadata.channel_title === "string" ? sourceMetadata.channel_title : "");
+
+  const baseText = [project.title, project.synopsis, project.sourceTitle, sourceTitle]
+    .filter(Boolean)
+    .join(" ");
+  const keywords = Array.from(new Set(extractKeywords(baseText))).slice(0, 4);
+  const seed = keywords.slice(0, 2).join(" ") || project.title;
+
+  const suffixes =
+    mediaType === "video"
+      ? ["cinematic footage", "documentary", "news footage", "b-roll", "dramatic"]
+      : ["cinematic", "documentary", "news", "dramatic", "editorial"];
+
+  return Array.from(
+    new Set([
+      project.title,
+      sourceTitle,
+      seed,
+      ...suffixes.map((suffix) => `${seed} ${suffix}`.trim()),
+      ...keywords.map((keyword) => `${keyword} ${mediaType === "video" ? "footage" : "photo"}`),
+    ].filter(Boolean)),
+  ).slice(0, 8);
+}
 
 export default function MediaPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [projectContext, setProjectContext] = useState<ProjectContext | null>(null);
   const [query, setQuery] = useState("cinematic city");
   const [mediaType, setMediaType] = useState<"image" | "video">("image");
   const [results, setResults] = useState<ExternalAssetResult[]>([]);
@@ -37,9 +116,39 @@ export default function MediaPage() {
     loadProjects();
   }, []);
 
+  useEffect(() => {
+    let active = true;
+
+    async function loadProjectContext() {
+      if (!selectedProjectId) {
+        setProjectContext(null);
+        return;
+      }
+
+      try {
+        const data = await fetchProject(selectedProjectId);
+        if (!active) return;
+        setProjectContext(data as ProjectContext);
+      } catch {
+        if (!active) return;
+        setProjectContext(null);
+      }
+    }
+
+    loadProjectContext();
+    return () => {
+      active = false;
+    };
+  }, [selectedProjectId]);
+
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) || null,
     [projects, selectedProjectId],
+  );
+
+  const keywordSuggestions = useMemo(
+    () => buildKeywordSuggestions(projectContext, mediaType),
+    [projectContext, mediaType],
   );
 
   const handleSearch = async () => {
@@ -119,6 +228,26 @@ export default function MediaPage() {
               Buscar no Pexels
             </Button>
           </div>
+
+          {selectedProjectId && keywordSuggestions.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold tracking-wide text-text-muted">
+                PALAVRAS-CHAVE SUGERIDAS A PARTIR DO PROJETO
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {keywordSuggestions.map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    type="button"
+                    onClick={() => setQuery(suggestion)}
+                    className="rounded-xs border border-border px-3 py-1 text-xs text-text-secondary transition-colors hover:border-border-active hover:text-text-primary"
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {error && <p className="text-sm text-status-danger">{error}</p>}
         </div>

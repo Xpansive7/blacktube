@@ -44,6 +44,21 @@ def create_project(
         visual_preset_id=project_data.visual_preset_id,
     )
     db.add(new_project)
+
+    db.flush()
+
+    for source_data in project_data.sources:
+        db.add(
+            ProjectSource(
+                project_id=new_project.id,
+                source_type=source_data.source_type,
+                external_id=source_data.external_id,
+                title=source_data.title,
+                url=source_data.url,
+                metadata_json=source_data.metadata_json,
+            )
+        )
+
     db.commit()
     db.refresh(new_project)
 
